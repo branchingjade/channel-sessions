@@ -43,6 +43,7 @@ try:
         get_messages as service_get_messages,
         _mutate,
         export_markdown,
+        search_messages,
     )
 finally:
     if _ADDED:
@@ -116,6 +117,15 @@ def pin_session(body: SessionMutation) -> dict[str, Any]:
         return _mutate(body.profile, "pin", body.session_id, pinned=bool(body.pinned))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/search")
+def search_route(q: str = "", limit: int = 50) -> dict[str, Any]:
+    """全文搜索 messages.content，返回命中会话/消息摘要。"""
+    try:
+        return search_messages(q, limit=limit)
     except Exception as exc:  # pragma: no cover
         raise HTTPException(status_code=500, detail=str(exc))
 

@@ -37,6 +37,7 @@ from service import (  # noqa: E402
     export_markdown,
     get_messages,
     list_sessions,
+    search_messages,
 )
 
 
@@ -352,3 +353,25 @@ def test_cache_path_inside_plugin_dir():
     p = _cache_path()
     assert p.name == "name_cache.json"
     assert "channel-sessions" in str(p)
+
+
+def test_search_messages_finds_content(db_path: Path, monkeypatch):
+    """全文搜索：命中 messages.content，去重返回会话级摘要。"""
+    monkeypatch.setattr(service, "_profile_dbs", lambda: [("default", db_path)])
+    r = search_messages("回复", limit=10)
+    assert r["ok"] is True
+    assert r["total"] >= 1
+    # 命中应带会话上下文
+    h = r["hits"][0]
+    assert h["session_id"] == "s1"
+    assert h["session_title"]
+    assert "回复" in h["content"]
+
+
+def test_search_messages_empty_query(db_path: Path, monkeypatch):
+    """空查询返回零命中（不抛错）。"""
+    monkeypatch.setattr(service, "_profile_dbs", lambda: [("default", db_path)])
+    r = search_messages("   ", limit=10)
+    assert r["ok"] is True
+    assert r["total"] == 0
+    assert r["hits"] == []

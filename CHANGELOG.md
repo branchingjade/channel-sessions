@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-08-09
+
+### Added (feature pass — full-line functional upgrades)
+- **Full-text search**: new backend `GET /search?q=` scans `messages.content` across all profiles (LIKE match, newest-first, deduped to one hit per session with session context). Frontend: typing ≥2 chars in the search box shows a live "N message hits in content" badge in the list header — click it to jump to the first hit session.
+- **Right-click context menu** on session rows: open full session / copy title / copy session ID / favorite / pin / archive / delete (positioned at cursor).
+- **Bulk pin / bulk archive** in the batch bar (select mode) — alongside the existing bulk category assign; sessions are never deleted.
+- **Sort switching** in the list header: recent activity (default) / oldest first / by title (locale-aware `zh-Hans-CN`), persisted to storage.
+
+### Changed
+- `plugin_api.py` routes 7 → 8 (`/search`); `service.py` +67 lines (`search_messages`).
+- Session-row menu unchanged; right-click menu is additive.
+
+### Fixed
+- N/A.
+
+[1.5.0]: https://github.com/branchingjade/channel-sessions/releases/tag/v1.5.0
+
 ## [1.4.3] - 2026-08-09
 
 ### Added

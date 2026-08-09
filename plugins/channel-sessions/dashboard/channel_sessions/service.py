@@ -376,3 +376,70 @@ def _mutate(profile: str, op: str, session_id: str, **kwargs) -> Dict[str, Any]:
         db.close()
     logger.info("会话操作成功 op=%s session=%s", op, session_id)
     return {"ok": True, "session_id": session_id, "op": op}
+
+
+# ---------------------------------------------------------------- 全文搜索
+
+def search_messages(query: str, limit: int = 50) -> Dict[str, Any]:
+    """在全部 profile 的 messages.content 里做 LIKE 搜索，返回命中消息摘要。
+
+    命中按消息 id 降序（最新在前），去重（同会话多条命中只保留一条最新），
+    附 session 上下文（标题/来源/时间）供前端跳转。
+    """
+    q = (query or "").strip()
+    if not q:
+        return {"ok": True, "query": q, "hits": [], "total": 0}
+    pattern = f"%{q}%"
+    hits: List[Dict[str, Any]] = []
+    for profile_name, db_path in _profile_dbs():
+        try:
+            conn = _open_db_ro(db_path)
+        except Exception as exc:
+            logger.warning("搜索打开库失败 %s: %s", db_path, exc)
+            continue
+        try:
+            rows = conn.execute(
+                """
+                SELECT m.id, m.session_id, m.role, m.content, m.timestamp
+                FROM messages m
+                WHERE m.content IS NOT NULL AND m.content LIKE ?
+                ORDER BY m.id DESC
+                LIMIT ?
+                """,
+                (pattern, limit * 4),
+            ).fetchall()
+            # 补会话上下文
+            seen: set = set()
+            for r in rows:
+                sid = str(r["session_id"] or "")
+                if sid in seen:
+                    continue
+                seen.add(sid)
+                srow = conn.execute(
+                    "SELECT id, title, source, user_id, display_name, chat_type FROM sessions WHERE id = ?",
+                    (sid,),
+                ).fetchone()
+                content = (r["content"] or "")[:300]
+                hits.append({
+                    "profile": profile_name,
+                    "message_id": r["id"],
+                    "session_id": sid,
+                    "role": r["role"] or "",
+                    "content": content,
+                    "timestamp": r["timestamp"],
+                    "session_title": (srow["title"] if srow else "") or "",
+                    "source": srow["source"] if srow else "",
+                    "user_id": srow["user_id"] if srow else "",
+                    "display_name": srow["display_name"] if srow else "",
+                    "chat_type": srow["chat_type"] if srow else "",
+                })
+                if len(hits) >= limit:
+                    break
+        except Exception as exc:
+            logger.warning("搜索读取失败 %s: %s", db_path, exc)
+        finally:
+            conn.close()
+        if len(hits) >= limit:
+            break
+    logger.info("全文搜索 query=%r hits=%d", q, len(hits))
+    return {"ok": True, "query": q, "hits": hits, "total": len(hits)}

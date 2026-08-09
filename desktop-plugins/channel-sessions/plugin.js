@@ -1,5 +1,6 @@
 /**
- * 渠道会话管理 v1.4.3 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * 渠道会话管理 v1.5.0 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * v1.5.0: 全文搜索（消息内容级命中）+ 右键菜单 + 批量置顶/归档 + 排序切换。
  * v1.4.3: 列表管理重构——会话人/群聊/分类重命名显示名（不删数据）、批量赋分类、移除批量删会话。
  * v1.4.2: 修复 UI 破损（不存在的 --ui-fill 系与字号类全部替换为编译产物存在的类）+ 分类操作按钮常显。
  * v1.4.1: 语言切换（auto 跟随设备 + 手动中英）+ 自定义分类 CRUD + 收藏 + 导出 Markdown。
@@ -80,7 +81,22 @@ const MESSAGES = {
     'filter.local': 'Local sessions',
     'filter.clear': 'Clear',
     'filter.active': parts => parts,
-    'filter.searching': q => `Search "${q}"`,
+    'filter.searching': q => `Searching "${q}"…`,
+    'search.hits': n => `${n} message hit${n === 1 ? '' : 's'} in content`,
+    'search.hits.empty': 'No message hits',
+    'search.hint': 'Search also covers message content',
+    'ctx.copy.title': 'Copy title',
+    'ctx.copy.id': 'Copy session ID',
+    'ctx.copied': 'Copied',
+    'ctx.open.full': 'Open full session',
+    'bulk.pin': 'Pin',
+    'bulk.unpin': 'Unpin',
+    'bulk.archive': 'Archive',
+    'bulk.unarchive': 'Unarchive',
+    'sort.label': 'Sort',
+    'sort.last': 'Recent activity',
+    'sort.created': 'Oldest first',
+    'sort.title': 'By title',
     'list.all': 'All sessions',
     'list.empty': 'No matching sessions',
     'list.empty.desc': 'Adjust filters on the left.',
@@ -185,7 +201,22 @@ const MESSAGES = {
     'filter.local': '本地会话',
     'filter.clear': '清除',
     'filter.active': parts => parts,
-    'filter.searching': q => `搜索「${q}」`,
+    'filter.searching': q => `搜索「${q}」…`,
+    'search.hits': n => `消息内容命中 ${n} 条`,
+    'search.hits.empty': '消息内容无命中',
+    'search.hint': '搜索同时覆盖消息内容',
+    'ctx.copy.title': '复制标题',
+    'ctx.copy.id': '复制会话 ID',
+    'ctx.copied': '已复制',
+    'ctx.open.full': '打开完整会话',
+    'bulk.pin': '置顶',
+    'bulk.unpin': '取消置顶',
+    'bulk.archive': '归档',
+    'bulk.unarchive': '取消归档',
+    'sort.label': '排序',
+    'sort.last': '最近活跃',
+    'sort.created': '最早创建',
+    'sort.title': '按标题',
     'list.all': '全部会话',
     'list.empty': '没有匹配的会话',
     'list.empty.desc': '调整左侧筛选条件。',
@@ -521,10 +552,38 @@ function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onTo
   const preview = (s.preview || '').trim()
   const myCats = sessionCats[s.id] || []
   const isFav = favorites.includes(s.id)
+  const [ctxOpen, setCtxOpen] = useState(false)
+  const [ctxPos, setCtxPos] = useState({ x: 0, y: 0 })
+  const copyText = txt => {
+    try { navigator.clipboard.writeText(txt); host.notify({ kind: 'success', message: t('ctx.copied') }) } catch (e) { /* clipboard 不可用时静默 */ }
+  }
+  const ctxMenu = jsx(DropdownMenu, {
+    open: ctxOpen, onOpenChange: setCtxOpen,
+    children: [
+      jsx(DropdownMenuTrigger, { asChild: true, children: jsx('div', { className: 'sr-only' }) }),
+      jsx(DropdownMenuContent, { align: 'start', style: { position: 'fixed', left: ctxPos.x, top: ctxPos.y, zIndex: 9999 }, children: [
+        jsx(DropdownMenuItem, { onSelect: () => onOpen(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'link' }), t('ctx.open.full')] })}),
+        jsx(DropdownMenuItem, { onSelect: () => copyText(sessionDisplayTitle(s, t)), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'copy' }), t('ctx.copy.title')] })}),
+        jsx(DropdownMenuItem, { onSelect: () => copyText(s.id), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'link-external' }), t('ctx.copy.id')] })}),
+        jsx(DropdownMenuSeparator, {}),
+        jsx(DropdownMenuItem, { onSelect: () => onToggleFavorite(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: isFav ? 'star-full' : 'star-empty' }), isFav ? t('action.unfavorite') : t('action.favorite')] })}),
+        jsx(DropdownMenuItem, { onSelect: () => onTogglePin(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'pinned' }), s.pinned ? t('action.unpin') : t('action.pin')] })}),
+        jsx(DropdownMenuItem, { onSelect: () => onToggleArchive(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'archive' }), s.archived ? t('action.unarchive') : t('action.archive')] })}),
+        jsx(DropdownMenuSeparator, {}),
+        jsx(DropdownMenuItem, { onSelect: () => onDelete(s), variant: 'destructive', children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'trash' }), t('action.delete')] })})
+      ]})
+    ]
+  })
   return jsxs('div', {
     className: 'group flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 transition-colors ' +
       (active ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-bg-tertiary)'),
     onClick: () => selectMode ? onToggleSelect(s) : onOpen(s),
+    onContextMenu: e => {
+      if (selectMode) return
+      e.preventDefault()
+      setCtxPos({ x: e.clientX, y: e.clientY })
+      setCtxOpen(true)
+    },
     children: [
       selectMode ? jsx('button', {
         className: 'shrink-0',
@@ -589,7 +648,8 @@ function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onTo
             ]})
           ]
         })})
-      ]})
+      ]}),
+      ctxMenu
     ]
   })
 }
@@ -701,6 +761,8 @@ function ChannelSessionsPage() {
   // 批量选择（批量赋分类用）
   const [selectMode, setSelectMode] = useState(false)
   const [selectIds, setSelectIds] = useState([])
+  // 排序：last（最后消息时间）/created（创建时间）/title（标题）
+  const [sortMode, setSortMode] = useState(() => apiStorage.get('sortMode', 'last'))
   // 对象显示名覆盖：{objectKey: 自定义名}（只改列表显示，不动数据）
   const [displayOverrides, setDisplayOverrides] = useState(() => apiStorage.get('displayOverrides', {}))
   const saveDisplayOverrides = next => {
@@ -760,6 +822,16 @@ function ChannelSessionsPage() {
     refetchInterval: REFRESH_INTERVAL_MS
   })
 
+  // 全文搜索（消息内容级）：query 输入防抖 400ms 后触发
+  const searchQ = (filters.query || '').trim()
+  const searchQuery = useQuery({
+    queryKey: [ID, 'search', searchQ],
+    queryFn: () => apiRest(`/search?q=${encodeURIComponent(searchQ)}&limit=20`),
+    enabled: searchQ.length >= 2,
+    staleTime: 15000
+  })
+  const searchHits = (searchQuery.data && searchQuery.data.hits) || []
+
   const mutation = useMutation({
     mutationFn: ({ path, body }) => apiRest(path, { method: 'POST', body }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: QUERY_KEY })
@@ -789,8 +861,12 @@ function ChannelSessionsPage() {
 
   const filtered = useMemo(() => {
     const f = { ...validFilters, sessionCats, favorites }
-    return all.filter(s => matchesAll(s, f)).sort((a, b) => timeOf(b) - timeOf(a))
-  }, [all, validFilters, sessionCats, favorites])
+    const list = all.filter(s => matchesAll(s, f))
+    if (sortMode === 'created') list.sort((a, b) => (timeOf(a) || 0) - (timeOf(b) || 0))
+    else if (sortMode === 'title') list.sort((a, b) => (sessionDisplayTitle(a, t) || '').localeCompare(sessionDisplayTitle(b, t) || '', 'zh-Hans-CN'))
+    else list.sort((a, b) => timeOf(b) - timeOf(a))
+    return list
+  }, [all, validFilters, sessionCats, favorites, sortMode, t])
 
   // 选中会话（从最新数据里找，标题随刷新更新）
   const selected = selectedId ? (all.find(s => s.id === selectedId) || null) : null
@@ -951,6 +1027,20 @@ function ChannelSessionsPage() {
     setSelectIds([])
     setSelectMode(false)
   }
+  // 批量置顶/归档（不删会话）
+  const bulkMutate = (op, value) => {
+    if (!selectIds.length) return
+    const jobs = selectIds.map(sid => {
+      const s = all.find(x => x.id === sid)
+      return apiRest('/' + op, { method: 'POST', body: { session_id: sid, profile: (s && s.profile) || 'default', [op === 'pin' ? 'pinned' : 'archived']: value } })
+    })
+    Promise.allSettled(jobs).then(() => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+      host.notify({ kind: 'success', message: t('filter.category.bulk.done', selectIds.length) })
+      setSelectIds([])
+      setSelectMode(false)
+    })
+  }
   const openSession = s => {
     if (s.id) host.navigate(`/${encodeURIComponent(s.id)}`)
   }
@@ -1075,8 +1165,36 @@ function ChannelSessionsPage() {
           jsx('span', { children: '·' }),
           jsx('span', { children: `${filtered.length}` }),
           validFilters.query.trim() ? jsx('span', { className: 'truncate', children: t('filter.searching', validFilters.query.trim()) }) : null,
+          searchQ.length >= 2 && !searchQuery.isLoading
+            ? jsx('span', {
+                className: 'shrink-0 cursor-pointer font-medium text-(--ui-accent) hover:underline',
+                title: t('search.hint'),
+                onClick: () => {
+                  const first = searchHits[0]
+                  if (first) setSelectedId(first.session_id)
+                },
+                children: searchHits.length ? t('search.hits', searchHits.length) : t('search.hits.empty')
+              })
+            : null,
+          jsx(DropdownMenu, { children: [
+            jsx(DropdownMenuTrigger, { asChild: true, children: jsx(Button, {
+              size: 'sm', variant: 'ghost', title: t('sort.label'),
+              children: jsxs('span', { className: 'flex items-center gap-1', children: [jsx(Codicon, { name: 'arrow-up' }),
+                t(sortMode === 'created' ? 'sort.created' : sortMode === 'title' ? 'sort.title' : 'sort.last')] })
+            })}),
+            jsx(DropdownMenuContent, { align: 'end', children: [
+              ['last', 'sort.last'], ['created', 'sort.created'], ['title', 'sort.title']
+            ].map(([key, labelKey]) => jsx(DropdownMenuItem, {
+              key,
+              onSelect: () => { setSortMode(key); apiStorage.set('sortMode', key) },
+              children: jsxs('span', { className: 'flex items-center gap-2', children: [
+                jsx(Codicon, { name: sortMode === key ? 'check' : 'blank', className: sortMode === key ? 'text-(--ui-accent)' : '' }),
+                t(labelKey)
+              ] })
+            })) })
+          ]}),
           jsx(Button, {
-            size: 'sm', variant: selectMode ? 'secondary' : 'ghost', className: 'ml-auto',
+            size: 'sm', variant: selectMode ? 'secondary' : 'ghost',
             onClick: () => { setSelectMode(!selectMode); setSelectIds([]) },
             title: t('filter.category.bulk'),
             children: jsxs('span', { className: 'flex items-center gap-1', children: [jsx(Codicon, { name: 'checklist' }), t('filter.category.select')] })
@@ -1101,8 +1219,12 @@ function ChannelSessionsPage() {
                   })) })
         }),
         // 批量操作条（选择模式时显示）
-        selectMode ? jsx('div', { className: 'flex items-center gap-2 border-t border-(--ui-stroke-secondary) px-3 py-2', children: [
+        selectMode ? jsx('div', { className: 'flex flex-wrap items-center gap-2 border-t border-(--ui-stroke-secondary) px-3 py-2', children: [
           jsx('span', { className: 'shrink-0 text-xs text-(--ui-text-secondary)', children: t('filter.category.selected', selectIds.length) }),
+          jsx(Button, { size: 'sm', variant: 'ghost', disabled: !selectIds.length, onClick: () => bulkMutate('pin', true), title: t('bulk.pin'),
+            children: jsxs('span', { className: 'flex items-center gap-1', children: [jsx(Codicon, { name: 'pinned' }), t('bulk.pin')] }) }),
+          jsx(Button, { size: 'sm', variant: 'ghost', disabled: !selectIds.length, onClick: () => bulkMutate('archive', true), title: t('bulk.archive'),
+            children: jsxs('span', { className: 'flex items-center gap-1', children: [jsx(Codicon, { name: 'archive' }), t('bulk.archive')] }) }),
           categories.length
             ? jsx(DropdownMenu, { children: [
                 jsx(DropdownMenuTrigger, { asChild: true, children: jsx(Button, { size: 'sm', variant: 'secondary', disabled: !selectIds.length, children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: 'tag-add' }), t('filter.category.bulk')] }) })}),
