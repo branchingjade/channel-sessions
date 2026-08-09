@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-08-08
+
+### Added
+- **Language switcher** — header segmented control: Auto (follows the app/device locale) / 中文 / English. Manual choice persists via `ctx.storage`; "Auto" maps the app locale (`zh`/`zh-hant` → Chinese, else English). Custom `useLangT` hook replaces `usePluginI18n` (SDK i18n cannot be overridden per-plugin).
+- **Custom categories** — full CRUD in the filter sidebar: create / rename / delete (with confirmation) categories, assign sessions via the row/detail menus (multi-category), category badges on rows and detail header, category filter with counts, cascade cleanup on delete or session deletion. Persisted via `ctx.storage` (`categories` + `sessionCats`).
+- **Favorites** — star any session from row/detail menus; favorites filter in the status group; star icon on rows; cascade cleanup on delete. Modeled after Pi Session Manager / Loominary favorites. Persisted via `ctx.storage` (`favorites`).
+- **Export as Markdown** — `GET /export?session_id=&profile=` renders metadata header + role-styled messages (👤/🤖/🛠); frontend downloads a `.md` file. Modeled after PSM/Loominary export.
+
+### Fixed
+- `validFilters` now falls back correctly for stale pinned/archived/favorites/category filters.
+- Selfcheck i18n extraction boundary updated after module-level `t` was removed.
+
+### Changed
+- Frontend grew from ~650 to ~1150 lines (language + categories + favorites + export).
+- Backend tests: 26 pytest cases (3 new export cases).
+
+[1.4.1]: https://github.com/branchingjade/channel-sessions/releases/tag/v1.4.1
+
 ## [1.4.0] - 2026-08-08
 
 ### Added

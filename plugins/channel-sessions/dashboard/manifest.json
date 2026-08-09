@@ -2,7 +2,7 @@
   "name": "channel-sessions",
   "label": "渠道会话管理",
   "description": "按会话人/平台/群聊私聊等多维度管理渠道会话（飞书等 gateway 会话）。",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "author": "妖玉",
   "homepage": "https://github.com/branchingjade/channel-sessions",
   "repository": "https://github.com/branchingjade/channel-sessions",

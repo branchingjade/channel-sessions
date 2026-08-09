@@ -34,6 +34,7 @@ from service import (  # noqa: E402
     _profile_dbs,
     _resolve_db,
     _rows_for_db,
+    export_markdown,
     get_messages,
     list_sessions,
 )
@@ -297,6 +298,33 @@ def test_mutate_unknown_op(db_path: Path, monkeypatch):
     monkeypatch.setattr(service, "_profile_dbs", lambda: [("default", db_path)])
     with pytest.raises(ValueError):
         _mutate("default", "explode", "s1")
+
+
+def test_export_markdown_renders_sessions(db_path: Path, monkeypatch):
+    """导出 Markdown：元数据头 + 分角色消息 + 时间戳。"""
+    monkeypatch.setattr(service, "_profile_dbs", lambda: [("default", db_path)])
+    result = export_markdown("default", "s1")
+    md = result["markdown"]
+    assert "# 会话A" in md
+    assert "- Profile: default" in md
+    assert "👤 User" in md
+    assert "🤖 Assistant" in md
+    assert "🛠" in md  # tool 消息
+    assert "第一条消息" in md
+    assert "工具输出" in md
+    assert result["title"] == "会话A"
+
+
+def test_export_markdown_unknown_session(db_path: Path, monkeypatch):
+    monkeypatch.setattr(service, "_profile_dbs", lambda: [("default", db_path)])
+    with pytest.raises(ValueError):
+        export_markdown("default", "no_such_session")
+
+
+def test_export_markdown_empty_session_id(db_path: Path, monkeypatch):
+    monkeypatch.setattr(service, "_profile_dbs", lambda: [("default", db_path)])
+    with pytest.raises(ValueError):
+        export_markdown("default", "")
 
 
 def test_mutate_empty_session_id(db_path: Path, monkeypatch):

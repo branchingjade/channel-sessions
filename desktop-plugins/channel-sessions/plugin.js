@@ -1,9 +1,10 @@
 /**
- * 渠道会话管理 v1.4.0 — 三栏布局：左导航 | 会话列表 | 消息详情。
- * v1.4.0: 会话列表自动刷新（15s）+ 后端日志/并发反查加固（开源发布版）。
+ * 渠道会话管理 v1.4.1 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * v1.4.1: 语言切换（auto 跟随设备 + 手动中英）+ 自定义分类 CRUD + 收藏 + 导出 Markdown。
+ * v1.4.0: 会话列表自动刷新（15s）+ 后端日志/并发反查加固 + 消息分页（开源发布版）。
  * v1.3: 点击会话行直接在插件内查看消息内容（user/assistant/tool 分角色渲染），
  *       详情头部可打开完整会话/重命名/置顶/归档/删除。
- * 多条件组合筛选（平台 × 会话人 × 状态 × 类型 × 搜索）+ UI 状态持久化。
+ * 多条件组合筛选（平台 × 会话人 × 状态 × 类型 × 分类 × 搜索）+ UI 状态持久化。
  * 纯 ESM，无构建步骤。用 jsx()/jsxs() 而非 JSX 语法。
  */
 import {
@@ -11,8 +12,8 @@ import {
   DialogDescription, DialogFooter, DialogHeader, DialogTitle,
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
   DropdownMenuTrigger, EmptyState, ErrorState, GlyphSpinner, Input,
-  PALETTE_AREA, ROUTES_AREA, ScrollArea, SearchField,
-  SIDEBAR_NAV_AREA, useMutation, usePluginI18n, useQuery, useQueryClient, host
+  PALETTE_AREA, ROUTES_AREA, ScrollArea, SearchField, SegmentedControl,
+  SIDEBAR_NAV_AREA, useI18n, useMutation, useQuery, useQueryClient, host
 } from '@hermes/plugin-sdk'
 import { useEffect, useMemo, useState } from 'react'
 import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
@@ -23,8 +24,12 @@ const QUERY_KEY = [ID, 'sessions']
 const REFRESH_INTERVAL_MS = 15000
 const MESSAGES_REFETCH_MS = 30000
 const UI_STORAGE_KEY = 'ui'
+const LANG_STORAGE_KEY = 'lang'
+const CATEGORIES_KEY = 'categories'
+const SESSION_CATS_KEY = 'sessionCats'
+const FAVORITES_KEY = 'favorites'
 
-const DEFAULT_FILTERS = { platform: 'all', person: 'all', status: 'all', type: 'all', query: '' }
+const DEFAULT_FILTERS = { platform: 'all', person: 'all', status: 'all', type: 'all', query: '', category: 'all' }
 
 // ---------------------------------------------------------------- i18n 字典
 
@@ -38,9 +43,32 @@ const MESSAGES = {
     'filter.person': 'People',
     'filter.status': 'Status',
     'filter.type': 'Type',
+    'filter.category': 'My categories',
+    'filter.category.empty': 'No categories yet',
+    'filter.category.empty.desc': 'Create one to group sessions.',
+    'filter.category.new': 'New category',
+    'filter.category.rename': 'Rename',
+    'filter.category.delete': 'Delete category',
+    'filter.category.name': 'Category name',
+    'filter.category.name.placeholder': 'e.g. Work, Family…',
+    'filter.category.assign': 'Category…',
+    'filter.category.none': 'No category',
+    'filter.category.delete.title': 'Delete category?',
+    'filter.category.delete.desc': name => `"${name}" will be removed. Sessions keep their data.`,
+    'lang.auto': 'Auto',
+    'lang.zh': '中文',
+    'lang.en': 'English',
+    'lang.label': 'Language',
     'filter.all': 'All',
     'filter.pinned': 'Pinned',
     'filter.archived': 'Archived',
+    'filter.favorites': 'Favorites',
+    'action.favorite': 'Favorite',
+    'action.unfavorite': 'Unfavorite',
+    'action.export': 'Export',
+    'action.export.title': 'Export as Markdown',
+    'action.export.done': 'Exported',
+    'action.export.failed': 'Export failed',
     'filter.groups': 'Groups / Channels',
     'filter.local': 'Local sessions',
     'filter.clear': 'Clear',
@@ -111,9 +139,32 @@ const MESSAGES = {
     'filter.person': '会话人',
     'filter.status': '状态',
     'filter.type': '类型',
+    'filter.category': '我的分类',
+    'filter.category.empty': '还没有分类',
+    'filter.category.empty.desc': '创建一个来给会话分组。',
+    'filter.category.new': '新建分类',
+    'filter.category.rename': '重命名',
+    'filter.category.delete': '删除分类',
+    'filter.category.name': '分类名称',
+    'filter.category.name.placeholder': '如：工作、家人…',
+    'filter.category.assign': '分类…',
+    'filter.category.none': '无分类',
+    'filter.category.delete.title': '删除分类？',
+    'filter.category.delete.desc': name => `「${name}」将被删除，会话数据不受影响。`,
+    'lang.auto': '自动',
+    'lang.zh': '中文',
+    'lang.en': 'English',
+    'lang.label': '语言',
     'filter.all': '全部',
     'filter.pinned': '已置顶',
     'filter.archived': '已归档',
+    'filter.favorites': '已收藏',
+    'action.favorite': '收藏',
+    'action.unfavorite': '取消收藏',
+    'action.export': '导出',
+    'action.export.title': '导出为 Markdown',
+    'action.export.done': '已导出',
+    'action.export.failed': '导出失败',
     'filter.groups': '群聊 / 频道',
     'filter.local': '本地会话',
     'filter.clear': '清除',
@@ -177,9 +228,24 @@ const MESSAGES = {
   }
 }
 
-// 模块级 t（register 时绑定；组件内用 usePluginI18n 响应式）
-let moduleT = key => key
-function fmt(n) { return String(n) }
+// 语言状态 hook：auto=跟随 app locale；zh/en=手动强制（持久化）
+function useLangT() {
+  const { locale } = useI18n()
+  const [lang, setLangState] = useState(() => apiStorage.get(LANG_STORAGE_KEY, 'auto'))
+  const resolved = lang === 'auto'
+    ? (locale === 'zh' || locale === 'zh-hant' ? 'zh' : 'en')
+    : lang
+  const t = useMemo(() => (key, ...args) => {
+    const bundle = MESSAGES[resolved] || MESSAGES.en
+    const v = bundle[key]
+    return typeof v === 'function' ? v(...args) : (v ?? key)
+  }, [resolved])
+  const setLang = l => {
+    setLangState(l)
+    apiStorage.set(LANG_STORAGE_KEY, l)
+  }
+  return { t, lang, resolved, setLang }
+}
 
 // ---------------------------------------------------------------- 工具函数
 
@@ -291,7 +357,7 @@ function objectLabel(s, t) {
 
 // ---------------------------------------------------------------- 筛选选项构建
 
-function buildFilterOptions(all, t) {
+function buildFilterOptions(all, t, favorites = []) {
   const platformMap = new Map()
   for (const s of all) {
     const k = s.source || 'unknown'
@@ -322,8 +388,10 @@ function buildFilterOptions(all, t) {
 
   const pinned = all.filter(s => s.pinned).length
   const archived = all.filter(s => s.archived).length
+  const favoriteCount = all.filter(s => favorites.includes(s.id)).length
   const statuses = [
     { key: 'all', label: t('filter.all') },
+    ...(favoriteCount ? [{ key: 'favorites', label: t('filter.favorites'), count: favoriteCount }] : []),
     ...(pinned ? [{ key: 'pinned', label: t('filter.pinned'), count: pinned }] : []),
     ...(archived ? [{ key: 'archived', label: t('filter.archived'), count: archived }] : [])
   ]
@@ -352,7 +420,12 @@ function matchesAll(s, f) {
   }
   if (f.status === 'pinned' && !s.pinned) return false
   if (f.status === 'archived' && !s.archived) return false
+  if (f.status === 'favorites' && !(f.favorites || []).includes(s.id)) return false
   if (f.type !== 'all' && chatTypeKey(s) !== f.type) return false
+  if (f.category && f.category !== 'all') {
+    const cats = f.sessionCats[s.id] || []
+    if (!cats.includes(f.category)) return false
+  }
   const q = f.query.trim().toLowerCase()
   if (q) {
     const hay = [s.title, s.user_name, s.user_id, s.display_name, s.source, s.chat_id, objectLabel(s)]
@@ -419,22 +492,30 @@ function MessageItem({ m, t }) {
 
 // ---------------------------------------------------------------- 会话行
 
-function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onToggleArchive, onDelete, t }) {
+function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onToggleArchive, onDelete, onToggleCategory, onToggleFavorite, categories, sessionCats, favorites, t }) {
   const person = showPerson ? objectLabel(s, t) : null
   const typeLabel = chatTypeLabel(s, t)
   const preview = (s.preview || '').trim()
+  const myCats = sessionCats[s.id] || []
+  const isFav = favorites.includes(s.id)
   return jsxs('div', {
     className: 'group flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 transition-colors ' +
       (active ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-fill-secondary)'),
     onClick: () => onOpen(s),
     children: [
-      jsx('div', { className: 'w-4 shrink-0 text-center', children: s.pinned
-        ? jsx(Codicon, { name: 'pinned', className: 'text-(--ui-accent)' })
-        : s.archived ? jsx(Codicon, { name: 'archive', className: 'text-(--ui-text-quaternary)' }) : null }),
+      jsx('div', { className: 'w-4 shrink-0 text-center', children: isFav
+        ? jsx(Codicon, { name: 'star-full', className: 'text-(--ui-accent)' })
+        : s.pinned
+          ? jsx(Codicon, { name: 'pinned', className: 'text-(--ui-accent)' })
+          : s.archived ? jsx(Codicon, { name: 'archive', className: 'text-(--ui-text-quaternary)' }) : null }),
       jsxs('div', { className: 'min-w-0 flex-1', children: [
         jsxs('div', { className: 'flex min-w-0 items-center gap-2', children: [
           jsx('span', { className: 'truncate text-[13px] font-medium', children: sessionDisplayTitle(s, t) }),
           typeLabel !== '—' ? jsx(Badge, { variant: 'outline', className: 'shrink-0 text-[10px]', children: typeLabel }) : null,
+          ...myCats.map(cid => {
+            const cat = categories.find(c => c.id === cid)
+            return cat ? jsx(Badge, { key: cid, className: 'shrink-0 max-w-24 truncate text-[10px]', children: cat.name }) : null
+          }),
           s.profile !== 'default' ? jsx(Badge, { className: 'shrink-0 text-[10px]', children: s.profile }) : null
         ]}),
         jsxs('div', { className: 'mt-0.5 flex min-w-0 items-center gap-1.5 truncate text-xs text-(--ui-text-tertiary)', children: [
@@ -459,7 +540,19 @@ function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onTo
             jsx(DropdownMenuContent, { align: 'end', children: [
               jsx(DropdownMenuItem, { onSelect: () => onOpen(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'link' }), t('action.open')] })}),
               jsx(DropdownMenuItem, { onSelect: () => onRename(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'edit' }), t('action.rename')] })}),
+              categories.length ? jsxs(Fragment, { children: [
+                jsx(DropdownMenuSeparator, {}),
+                jsx('div', { className: 'px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.category.assign') }),
+                ...categories.map(cat => jsx(DropdownMenuItem, {
+                  key: cat.id, onSelect: () => onToggleCategory(s, cat.id),
+                  children: jsxs('span', { className: 'flex items-center gap-2', children: [
+                    jsx(Codicon, { name: myCats.includes(cat.id) ? 'check' : 'tag', className: myCats.includes(cat.id) ? 'text-(--ui-accent)' : '' }),
+                    jsx('span', { className: 'truncate', children: cat.name })
+                  ]})
+                }))
+              ]}) : null,
               jsx(DropdownMenuSeparator, {}),
+              jsx(DropdownMenuItem, { onSelect: () => onToggleFavorite(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: isFav ? 'star-full' : 'star-empty' }), isFav ? t('action.unfavorite') : t('action.favorite')] })}),
               jsx(DropdownMenuItem, { onSelect: () => onTogglePin(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'pinned' }), s.pinned ? t('action.unpin') : t('action.pin')] })}),
               jsx(DropdownMenuItem, { onSelect: () => onToggleArchive(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'archive' }), s.archived ? t('action.unarchive') : t('action.archive')] })}),
               jsx(DropdownMenuSeparator, {}),
@@ -534,11 +627,31 @@ function RenameDialog({ open, session, onClose, onConfirm, t }) {
   ]})
 }
 
+// ---------------------------------------------------------------- 分类对话框（新建/重命名共用）
+
+function CategoryDialog({ open, title, initialValue = '', placeholder, onClose, onConfirm, t }) {
+  const [value, setValue] = useState(initialValue)
+  // 打开时重置为初始值
+  useEffect(() => { if (open) setValue(initialValue) }, [open, initialValue])
+  return jsx(Dialog, { open, onOpenChange: open2 => { if (!open2) onClose() }, children: [
+    jsx(DialogContent, { children: [
+      jsx(DialogHeader, { children: jsx(DialogTitle, { children: title })}),
+      jsx(Input, { value, autoFocus: true, placeholder,
+        onChange: e => setValue(e.target.value),
+        onKeyDown: e => { if (e.key === 'Enter' && value.trim()) onConfirm(value.trim()) } }),
+      jsx(DialogFooter, { children: [
+        jsx(Button, { variant: 'ghost', onClick: onClose, children: t('rename.cancel') }),
+        jsx(Button, { disabled: !value.trim(), onClick: () => onConfirm(value.trim()), children: t('rename.save') })
+      ]})
+    ]})
+  ]})
+}
+
 // ---------------------------------------------------------------- 主页面
 
 function ChannelSessionsPage() {
   const queryClient = useQueryClient()
-  const t = usePluginI18n(ID)
+  const { t, lang, setLang } = useLangT()
   const [filters, setFilters] = useState(() => ({ ...DEFAULT_FILTERS, ...apiStorage.get(UI_STORAGE_KEY, {}) }))
   const saveFilters = patch => setFilters(prev => {
     const next = { ...prev, ...patch }
@@ -548,6 +661,51 @@ function ChannelSessionsPage() {
   const [selectedId, setSelectedId] = useState(null)
   const [renameTarget, setRenameTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+
+  // 自定义分类：categories=[{id,name}]，sessionCats={sessionId:[catId]}
+  const [categories, setCategories] = useState(() => apiStorage.get(CATEGORIES_KEY, []))
+  const [sessionCats, setSessionCats] = useState(() => apiStorage.get(SESSION_CATS_KEY, {}))
+  const saveCategories = next => {
+    setCategories(next)
+    apiStorage.set(CATEGORIES_KEY, next)
+  }
+  const saveSessionCats = next => {
+    setSessionCats(next)
+    apiStorage.set(SESSION_CATS_KEY, next)
+  }
+  const [catDialog, setCatDialog] = useState(null) // {mode:'new'|'rename', cat?}
+  const [catDeleteTarget, setCatDeleteTarget] = useState(null)
+
+  // 收藏：favorites=[sessionId]（对标 Pi Session Manager / Loominary 的 favorites）
+  const [favorites, setFavorites] = useState(() => apiStorage.get(FAVORITES_KEY, []))
+  const saveFavorites = next => {
+    setFavorites(next)
+    apiStorage.set(FAVORITES_KEY, next)
+  }
+  const toggleFavorite = s => {
+    const has = favorites.includes(s.id)
+    saveFavorites(has ? favorites.filter(x => x !== s.id) : [...favorites, s.id])
+  }
+  // 导出为 Markdown（对标 Pi Session Manager / Loominary 的导出能力）
+  const doExport = async s => {
+    try {
+      const res = await apiRest(`/export?session_id=${encodeURIComponent(s.id)}&profile=${encodeURIComponent(s.profile || 'default')}`)
+      const md = res && res.markdown
+      if (!md) throw new Error('empty export')
+      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      const safeTitle = (res.title || s.id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)
+      a.href = url
+      a.download = `${safeTitle}.md`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      host.notify({ kind: 'error', message: t('action.export.failed') })
+    }
+  }
 
   const sessionsQuery = useQuery({
     queryKey: QUERY_KEY,
@@ -563,7 +721,7 @@ function ChannelSessionsPage() {
   const data = sessionsQuery.data || { sessions: [], names: {} }
   const all = (data.sessions || []).filter(s => s.source && s.source !== 'cli' && s.source !== 'tui')
 
-  const options = useMemo(() => buildFilterOptions(all, t), [all, t])
+  const options = useMemo(() => buildFilterOptions(all, t, favorites), [all, t, favorites])
 
   // 失效筛选自动回退
   const validFilters = useMemo(() => {
@@ -574,13 +732,18 @@ function ChannelSessionsPage() {
       if (!exists) f.person = 'all'
     }
     if (f.person === 'local' && !options.localCount) f.person = 'all'
+    if (f.status === 'pinned' && !all.some(s => s.pinned)) f.status = 'all'
+    if (f.status === 'archived' && !all.some(s => s.archived)) f.status = 'all'
+    if (f.status === 'favorites' && !favorites.length) f.status = 'all'
     if (f.type !== 'all' && !options.types.some(t => t.key === f.type)) f.type = 'all'
+    if (f.category && f.category !== 'all' && !categories.some(c => c.id === f.category)) f.category = 'all'
     return f
-  }, [filters, options])
+  }, [filters, options, categories, all, favorites])
 
   const filtered = useMemo(() => {
-    return all.filter(s => matchesAll(s, validFilters)).sort((a, b) => timeOf(b) - timeOf(a))
-  }, [all, validFilters])
+    const f = { ...validFilters, sessionCats, favorites }
+    return all.filter(s => matchesAll(s, f)).sort((a, b) => timeOf(b) - timeOf(a))
+  }, [all, validFilters, sessionCats, favorites])
 
   // 选中会话（从最新数据里找，标题随刷新更新）
   const selected = selectedId ? (all.find(s => s.id === selectedId) || null) : null
@@ -626,7 +789,7 @@ function ChannelSessionsPage() {
 
   const pinnedCount = all.filter(s => s.pinned).length
   const archivedCount = all.filter(s => s.archived).length
-  const activeCount = [validFilters.platform, validFilters.person, validFilters.status, validFilters.type]
+  const activeCount = [validFilters.platform, validFilters.person, validFilters.status, validFilters.type, validFilters.category]
     .filter(v => v !== 'all').length + (validFilters.query.trim() ? 1 : 0)
 
   const activeParts = []
@@ -637,9 +800,14 @@ function ChannelSessionsPage() {
   }
   if (validFilters.status === 'pinned') activeParts.push(t('filter.pinned'))
   if (validFilters.status === 'archived') activeParts.push(t('filter.archived'))
+  if (validFilters.status === 'favorites') activeParts.push(t('filter.favorites'))
   if (validFilters.type !== 'all') {
     const tt = options.types.find(x => x.key === validFilters.type)
     if (tt) activeParts.push(tt.label)
+  }
+  if (validFilters.category !== 'all') {
+    const cat = categories.find(c => c.id === validFilters.category)
+    if (cat) activeParts.push(cat.name)
   }
 
   const doRename = title => {
@@ -656,6 +824,45 @@ function ChannelSessionsPage() {
     await mutation.mutateAsync({ path: '/delete', body: { session_id: s.id, profile: s.profile || 'default' } })
     setDeleteTarget(null)
     if (selectedId === s.id) setSelectedId(null)
+    // 清理该会话的分类映射与收藏
+    if (sessionCats[s.id]) {
+      const next = { ...sessionCats }
+      delete next[s.id]
+      saveSessionCats(next)
+    }
+    if (favorites.includes(s.id)) {
+      saveFavorites(favorites.filter(x => x !== s.id))
+    }
+  }
+  // 分类 CRUD
+  const createCategory = name => {
+    const id = `cat-${Date.now()}`
+    saveCategories([...categories, { id, name }])
+    setCatDialog(null)
+  }
+  const renameCategory = name => {
+    if (!catDialog || !catDialog.cat) return
+    saveCategories(categories.map(c => (c.id === catDialog.cat.id ? { ...c, name } : c)))
+    setCatDialog(null)
+  }
+  const confirmDeleteCategory = () => {
+    if (!catDeleteTarget) return
+    const id = catDeleteTarget.id
+    saveCategories(categories.filter(c => c.id !== id))
+    const next = {}
+    for (const [sid, ids] of Object.entries(sessionCats)) {
+      const rest = ids.filter(x => x !== id)
+      if (rest.length) next[sid] = rest
+    }
+    saveSessionCats(next)
+    if (validFilters.category === id) saveFilters({ category: 'all' })
+    setCatDeleteTarget(null)
+  }
+  const toggleSessionCategory = (s, catId) => {
+    const cur = sessionCats[s.id] || []
+    const has = cur.includes(catId)
+    const nextCats = has ? cur.filter(x => x !== catId) : [...cur, catId]
+    saveSessionCats({ ...sessionCats, [s.id]: nextCats })
   }
   const openSession = s => {
     if (s.id) host.navigate(`/${encodeURIComponent(s.id)}`)
@@ -677,11 +884,22 @@ function ChannelSessionsPage() {
         pinnedCount > 0 ? jsx(Badge, { className: 'text-[10px]', children: `${t('filter.pinned')} ${pinnedCount}` }) : null,
         archivedCount > 0 ? jsx(Badge, { variant: 'outline', className: 'text-[10px]', children: `${t('filter.archived')} ${archivedCount}` }) : null
       ]}),
-      jsx(Button, {
-        variant: 'ghost', size: 'sm', onClick: () => sessionsQuery.refetch(),
-        disabled: sessionsQuery.isFetching, title: t('refresh'),
-        children: sessionsQuery.isFetching ? jsx(GlyphSpinner, {}) : jsx(Codicon, { name: 'refresh' })
-      })
+      jsxs('div', { className: 'flex items-center gap-2', children: [
+        jsx('span', { className: 'text-[10.5px] font-medium uppercase tracking-wide text-(--ui-text-quaternary)', children: t('lang.label') }),
+        jsx(SegmentedControl, {
+          value: lang, onChange: setLang,
+          options: [
+            { id: 'auto', label: t('lang.auto') },
+            { id: 'zh', label: t('lang.zh') },
+            { id: 'en', label: t('lang.en') }
+          ]
+        }),
+        jsx(Button, {
+          variant: 'ghost', size: 'sm', onClick: () => sessionsQuery.refetch(),
+          disabled: sessionsQuery.isFetching, title: t('refresh'),
+          children: sessionsQuery.isFetching ? jsx(GlyphSpinner, {}) : jsx(Codicon, { name: 'refresh' })
+        })
+      ]})
     ]}),
     // 主体：左导航 | 会话列表 | 消息详情
     jsxs('div', { className: 'flex min-h-0 flex-1', children: [
@@ -716,7 +934,51 @@ function ChannelSessionsPage() {
           jsx(FilterSection, { title: t('filter.type'), children: jsx('div', { className: 'flex flex-wrap gap-1 px-1', children: options.types.map(ty => jsx(FilterChip, {
             key: ty.key, active: validFilters.type === ty.key, label: ty.label, count: ty.count,
             onClick: () => saveFilters({ type: validFilters.type === ty.key ? 'all' : ty.key })
-          }))})})
+          }))})}),
+          jsx(FilterSection, { title: t('filter.category'), children: jsxs('div', { className: 'space-y-0.5', children: [
+            categories.length
+              ? [
+                  ...categories.map(cat => {
+                    const count = all.filter(s => (sessionCats[s.id] || []).includes(cat.id)).length
+                    return jsx('div', {
+                      key: cat.id,
+                      className: 'group flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors ' +
+                        (validFilters.category === cat.id ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-fill-secondary)'),
+                      children: [
+                        jsx('button', {
+                          className: 'flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left',
+                          onClick: () => saveFilters({ category: validFilters.category === cat.id ? 'all' : cat.id }),
+                          children: [
+                            jsx(Codicon, { name: 'tag', className: 'shrink-0 text-[12px] text-(--ui-text-tertiary)' }),
+                            jsx('span', { className: 'min-w-0 flex-1 truncate text-[12.5px]', children: cat.name }),
+                            jsx('span', { className: 'shrink-0 text-[11px] tabular-nums text-(--ui-text-quaternary)', children: count })
+                          ]
+                        }),
+                        jsx('div', { className: 'flex shrink-0 items-center opacity-0 group-hover:opacity-100', children: [
+                          jsx('button', {
+                            className: 'rounded p-0.5 text-(--ui-text-quaternary) hover:text-(--ui-text-secondary)',
+                            title: t('filter.category.rename'),
+                            onClick: () => setCatDialog({ mode: 'rename', cat }),
+                            children: jsx(Codicon, { name: 'edit', className: 'text-[11px]' })
+                          }),
+                          jsx('button', {
+                            className: 'rounded p-0.5 text-(--ui-text-quaternary) hover:text-destructive',
+                            title: t('filter.category.delete'),
+                            onClick: () => setCatDeleteTarget(cat),
+                            children: jsx(Codicon, { name: 'trash', className: 'text-[11px]' })
+                          })
+                        ]})
+                      ]
+                    })
+                  })
+                ]
+              : jsx('div', { className: 'px-1 py-1 text-xs text-(--ui-text-quaternary)', children: t('filter.category.empty') }),
+            jsx('button', {
+              className: 'flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-(--ui-accent) hover:bg-(--ui-fill-secondary)',
+              onClick: () => setCatDialog({ mode: 'new' }),
+              children: [jsx(Codicon, { name: 'add', className: 'text-[12px]' }), t('filter.category.new')]
+            })
+          ]})})
         ]})})
       ]}),
       // 中栏：会话列表
@@ -737,8 +999,10 @@ function ChannelSessionsPage() {
                 ? jsx(EmptyState, { title: t('list.empty'), description: t('list.empty.desc') })
                 : jsx('div', { className: 'px-2 py-2', children: filtered.map(s => jsx(SessionRow, {
                     key: s.id, s, active: selected && selected.id === s.id, showPerson, t,
+                    categories, sessionCats, favorites,
                     onOpen: toggleSelect, onRename: setRenameTarget,
                     onTogglePin: doTogglePin, onToggleArchive: doToggleArchive,
+                    onToggleCategory: toggleSessionCategory, onToggleFavorite: toggleFavorite,
                     onDelete: setDeleteTarget
                   })) })
         })
@@ -753,6 +1017,10 @@ function ChannelSessionsPage() {
                 jsx('div', { className: 'min-w-0 flex-1', children: [
                   jsxs('div', { className: 'flex items-center gap-2', children: [
                     jsx('span', { className: 'truncate text-[13px] font-semibold', children: sessionDisplayTitle(selected, t) }),
+                    ...(sessionCats[selected.id] || []).map(cid => {
+                      const cat = categories.find(c => c.id === cid)
+                      return cat ? jsx(Badge, { key: cid, className: 'shrink-0 max-w-24 truncate text-[10px]', children: cat.name }) : null
+                    }),
                     selected.pinned ? jsx(Codicon, { name: 'pinned', className: 'shrink-0 text-(--ui-accent)' }) : null
                   ]}),
                   jsxs('div', { className: 'mt-0.5 flex items-center gap-1.5 text-xs text-(--ui-text-tertiary)', children: [
@@ -765,11 +1033,25 @@ function ChannelSessionsPage() {
                 ]}),
                 jsx(Button, { size: 'sm', variant: 'secondary', onClick: () => openSession(selected), title: t('detail.open.full.title'),
                   children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: 'open-new-window' }), t('detail.open.full')] }) }),
+                jsx(Button, { size: 'sm', variant: 'secondary', onClick: () => doExport(selected), title: t('action.export.title'),
+                  children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: 'download' }), t('action.export')] }) }),
                 jsx('div', { className: 'shrink-0', children: jsx(DropdownMenu, { children: [
                   jsx(DropdownMenuTrigger, { asChild: true, children: jsx(Button, { variant: 'ghost', size: 'sm', 'aria-label': t('title'), children: jsx(Codicon, { name: 'kebab-vertical' }) })}),
                   jsx(DropdownMenuContent, { align: 'end', children: [
                     jsx(DropdownMenuItem, { onSelect: () => setRenameTarget(selected), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'edit' }), t('action.rename')] })}),
+                    categories.length ? jsxs(Fragment, { children: [
+                      jsx(DropdownMenuSeparator, {}),
+                      jsx('div', { className: 'px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.category.assign') }),
+                      ...categories.map(cat => jsx(DropdownMenuItem, {
+                        key: cat.id, onSelect: () => toggleSessionCategory(selected, cat.id),
+                        children: jsxs('span', { className: 'flex items-center gap-2', children: [
+                          jsx(Codicon, { name: (sessionCats[selected.id] || []).includes(cat.id) ? 'check' : 'tag', className: (sessionCats[selected.id] || []).includes(cat.id) ? 'text-(--ui-accent)' : '' }),
+                          jsx('span', { className: 'truncate', children: cat.name })
+                        ]})
+                      }))
+                    ]}) : null,
                     jsx(DropdownMenuSeparator, {}),
+                    jsx(DropdownMenuItem, { onSelect: () => toggleFavorite(selected), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: favorites.includes(selected.id) ? 'star-full' : 'star-empty' }), favorites.includes(selected.id) ? t('action.unfavorite') : t('action.favorite')] })}),
                     jsx(DropdownMenuItem, { onSelect: () => doTogglePin(selected), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'pinned' }), selected.pinned ? t('action.unpin') : t('action.pin')] })}),
                     jsx(DropdownMenuItem, { onSelect: () => doToggleArchive(selected), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'archive' }), selected.archived ? t('action.unarchive') : t('action.archive')] })}),
                     jsx(DropdownMenuSeparator, {}),
@@ -811,6 +1093,22 @@ function ChannelSessionsPage() {
     ]}),
     // 对话框
     jsx(RenameDialog, { key: renameTarget ? renameTarget.id : 'none', open: !!renameTarget, session: renameTarget, onClose: () => setRenameTarget(null), onConfirm: doRename, t }),
+    jsx(CategoryDialog, {
+      key: catDialog ? (catDialog.mode === 'rename' ? catDialog.cat.id : 'new') : 'none',
+      open: !!catDialog,
+      title: catDialog && catDialog.mode === 'rename' ? t('filter.category.rename') : t('filter.category.new'),
+      initialValue: catDialog && catDialog.mode === 'rename' ? catDialog.cat.name : '',
+      placeholder: t('filter.category.name.placeholder'),
+      onClose: () => setCatDialog(null),
+      onConfirm: catDialog && catDialog.mode === 'rename' ? renameCategory : createCategory,
+      t
+    }),
+    jsx(ConfirmDialog, {
+      open: !!catDeleteTarget, onClose: () => setCatDeleteTarget(null), onConfirm: confirmDeleteCategory,
+      title: t('filter.category.delete.title'),
+      description: catDeleteTarget ? t('filter.category.delete.desc', catDeleteTarget.name) : '',
+      confirmLabel: t('delete.confirm'), destructive: true, dismissOnConfirm: true
+    }),
     jsx(ConfirmDialog, {
       open: !!deleteTarget, onClose: () => setDeleteTarget(null), onConfirm: doDelete,
       title: t('delete.title'),
@@ -833,8 +1131,6 @@ export default {
   register(ctx) {
     apiRest = (path, opts) => ctx.rest(path, opts)
     apiStorage = ctx.storage
-    moduleT = ctx.i18n.t
-    ctx.i18n.register(MESSAGES)
     ctx.register({
       id: 'nav-channel-sessions',
       area: SIDEBAR_NAV_AREA,

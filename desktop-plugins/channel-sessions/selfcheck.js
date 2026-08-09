@@ -21,6 +21,9 @@ const fn = new Function(logic + '; return { objectKey, objectLabel, chatTypeKey,
 const m = fn()
 const t = key => key
 
+// 分类筛选辅助：构造带 sessionCats 的过滤条件
+const withCats = (f, sessionCats) => ({ ...f, sessionCats })
+
 const cases = [
   { name: '飞书私聊对象键', actual: m.objectKey({ source: 'feishu', chat_type: 'dm', user_id: 'ou_1' }), expect: 'person:ou_1' },
   { name: '飞书群聊对象键', actual: m.objectKey({ source: 'feishu', chat_type: 'group', chat_id: 'oc_g' }), expect: 'group:oc_g' },
@@ -50,7 +53,32 @@ const cases = [
     const all = [{ source: 'feishu', chat_type: 'dm', user_id: 'u1', title: 'D' },
                  { source: 'feishu', chat_type: 'group', chat_id: 'g1', title: 'G' }]
     return all.filter(s => m.matchesAll(s, { platform: 'all', person: 'all', status: 'all', type: 'dm', query: '' })).length
-  })(), expect: 1 }
+  })(), expect: 1 },
+  { name: '分类筛选命中', actual: (() => {
+    const all = [{ id: 's1', source: 'feishu', chat_type: 'dm', user_id: 'u1', title: 'A' },
+                 { id: 's2', source: 'feishu', chat_type: 'dm', user_id: 'u2', title: 'B' }]
+    const cats = { s1: ['cat-1'], s2: [] }
+    return all.filter(s => m.matchesAll(s, withCats({ platform: 'all', person: 'all', status: 'all', type: 'all', query: '', category: 'cat-1' }, cats))).map(s => s.id).join()
+  })(), expect: 's1' },
+  { name: '分类筛选全部门禁', actual: (() => {
+    const all = [{ id: 's1', source: 'feishu', chat_type: 'dm', user_id: 'u1', title: 'A' }]
+    return m.matchesAll(all[0], withCats({ platform: 'all', person: 'all', status: 'all', type: 'all', query: '', category: 'cat-x' }, { s1: ['cat-1'] }))
+  })(), expect: false },
+  { name: '分类筛选 all 放行', actual: (() => {
+    const all = [{ id: 's1', source: 'feishu', chat_type: 'dm', user_id: 'u1', title: 'A' }]
+    return m.matchesAll(all[0], withCats({ platform: 'all', person: 'all', status: 'all', type: 'all', query: '', category: 'all' }, {}))
+  })(), expect: true },
+  { name: '收藏筛选命中', actual: (() => {
+    const all = [{ id: 's1', source: 'feishu', chat_type: 'dm', user_id: 'u1', title: 'A' },
+                 { id: 's2', source: 'feishu', chat_type: 'dm', user_id: 'u2', title: 'B' }]
+    const f = { platform: 'all', person: 'all', status: 'favorites', type: 'all', query: '', category: 'all', favorites: ['s1'] }
+    return all.filter(s => m.matchesAll(s, f)).map(s => s.id).join()
+  })(), expect: 's1' },
+  { name: '收藏筛选无收藏为空', actual: (() => {
+    const all = [{ id: 's1', source: 'feishu', chat_type: 'dm', user_id: 'u1', title: 'A' }]
+    const f = { platform: 'all', person: 'all', status: 'favorites', type: 'all', query: '', category: 'all', favorites: [] }
+    return all.filter(s => m.matchesAll(s, f)).length
+  })(), expect: 0 }
 ]
 let fail = 0
 for (const c of cases) {
@@ -66,7 +94,7 @@ console.log('[3] fmtTime 当前时间:', just, just === 'time.just_now' ? '✅' 
 
 // 4. i18n 字典完整性：en/zh 键集合一致
 const i18nStart = src.indexOf('const MESSAGES = {')
-const i18nEnd = src.indexOf('// 模块级 t')
+const i18nEnd = src.indexOf('// 语言状态 hook')
 const i18nSrc = src.slice(i18nStart, i18nEnd)
 const i18nFn = new Function(i18nSrc + '; return MESSAGES')
 const MESSAGES = i18nFn()

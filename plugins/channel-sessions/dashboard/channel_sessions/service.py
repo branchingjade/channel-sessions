@@ -285,6 +285,65 @@ def get_messages(profile: str, session_id: str, limit: int = 200, offset: int = 
         db.close()
 
 
+# ---------------------------------------------------------------- 导出
+
+def export_markdown(profile: str, session_id: str) -> Dict[str, Any]:
+    """导出会话为 Markdown：元数据头 + 分角色消息（纯只读，无外部依赖）。"""
+    if not session_id or not session_id.strip():
+        raise ValueError("session_id 不能为空")
+    from hermes_state import SessionDB
+
+    _, db_path = _resolve_db(profile)
+    db = SessionDB(db_path=db_path, read_only=True)
+    try:
+        sid = db.resolve_session_id(session_id)
+        if not sid:
+            raise ValueError(f"会话不存在: {session_id}")
+        sid = db.resolve_resume_session_id(sid)
+        messages = db.get_messages(sid, limit=500)
+        session = db.get_session(sid) or {}
+        lines: List[str] = []
+        lines.append(f"# {session.get('title') or session_id}")
+        lines.append("")
+        lines.append(f"- Profile: {profile}")
+        lines.append(f"- Source: {session.get('source') or 'unknown'}")
+        if session.get("model"):
+            lines.append(f"- Model: {session['model']}")
+        if session.get("started_at"):
+            started = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(session["started_at"])))
+            lines.append(f"- Started: {started}")
+        if session.get("message_count"):
+            lines.append(f"- Messages: {session['message_count']}")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        for m in messages:
+            role = m.get("role") or "unknown"
+            content = str(m.get("content") or "")
+            if role == "session_meta":
+                continue
+            ts = ""
+            if m.get("timestamp"):
+                ts = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(m["timestamp"])))
+            if role == "tool":
+                tool = m.get("tool_name") or "tool"
+                lines.append(f"### 🛠 {tool} {f'({ts})' if ts else ''}")
+            elif role == "user":
+                lines.append(f"### 👤 User {f'({ts})' if ts else ''}")
+            else:
+                lines.append(f"### 🤖 Assistant {f'({ts})' if ts else ''}")
+            lines.append("")
+            lines.append(content.strip())
+            lines.append("")
+        return {
+            "session_id": sid,
+            "title": session.get("title") or session_id,
+            "markdown": "\n".join(lines),
+        }
+    finally:
+        db.close()
+
+
 def _mutate(profile: str, op: str, session_id: str, **kwargs) -> Dict[str, Any]:
     """管理操作代理。所有参数经 API 层校验，这里再兜底防御。
 

@@ -38,7 +38,7 @@ _ADDED = str(_DASHBOARD_DIR) not in sys.path
 if _ADDED:
     sys.path.insert(0, str(_DASHBOARD_DIR))
 try:
-    from channel_sessions.service import list_sessions, get_messages as service_get_messages, _mutate
+    from channel_sessions.service import list_sessions, get_messages as service_get_messages, _mutate, export_markdown
 finally:
     if _ADDED:
         sys.path.remove(str(_DASHBOARD_DIR))
@@ -68,6 +68,17 @@ def get_session_messages(session_id: str, profile: str = "default", limit: int =
     """读取指定会话的消息记录（只读）。"""
     try:
         return service_get_messages(profile, session_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/export")
+def export_session(session_id: str, profile: str = "default") -> dict[str, Any]:
+    """导出会话为 Markdown（消息 + 元数据头，纯只读）。"""
+    try:
+        return export_markdown(profile, session_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # pragma: no cover
