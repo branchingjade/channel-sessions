@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-08-09
+
+### Added
+- **Rename display name** (list-management rework): every object row (person / group / category) now has an always-visible ✏️ button that opens a rename dialog — changes only the name shown in the list (`displayOverrides` in `ctx.storage`), never touches the underlying session data. Clearing the input restores the default.
+- **Batch assign category**: new select mode on the session list (checklist button in the list header) — check multiple sessions, then assign a category to all of them at once via the batch bar.
+
+### Removed
+- **Batch delete of sessions by object** (`POST /delete-by-object` + backend `delete_by_object` + the trash button on object rows). Deletion is now scoped to a single session from the row/detail menu only; object rows no longer offer destructive bulk actions.
+
+### Changed
+- Category delete stays pure: deleting a category only removes it from `sessionCats` mappings — sessions are untouched (unchanged from 1.4.1, now covered by tests).
+- Frontend: `objectLabel()` honours `displayOverrides` first; `buildFilterOptions` receives overrides for list labels.
+- Backend: `plugin_api.py` down to 7 routes (no delete-by-object); `service.py` drops the now-unused `_object_key`/`delete_by_object`.
+
+### Fixed
+- N/A (no bug fixes in this release; pure list-management scope).
+
+[1.4.3]: https://github.com/branchingjade/channel-sessions/releases/tag/v1.4.3
+
 ## [1.4.2] - 2026-08-09
 
 ### Fixed (critical UI regression)

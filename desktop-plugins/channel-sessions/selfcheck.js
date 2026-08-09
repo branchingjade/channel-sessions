@@ -78,7 +78,9 @@ const cases = [
     const all = [{ id: 's1', source: 'feishu', chat_type: 'dm', user_id: 'u1', title: 'A' }]
     const f = { platform: 'all', person: 'all', status: 'favorites', type: 'all', query: '', category: 'all', favorites: [] }
     return all.filter(s => m.matchesAll(s, f)).length
-  })(), expect: 0 }
+  })(), expect: 0 },
+  { name: '显示名覆盖优先', actual: m.objectLabel({ source: 'feishu', chat_type: 'dm', user_id: 'ou_1', user_name: '本名' }, t, { 'person:ou_1': '自定义名' }), expect: '自定义名' },
+  { name: '无覆盖用原名', actual: m.objectLabel({ source: 'feishu', chat_type: 'dm', user_id: 'ou_1', user_name: '本名' }, t, {}), expect: '本名' }
 ]
 let fail = 0
 for (const c of cases) {

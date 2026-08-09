@@ -1,6 +1,7 @@
 /**
- * 渠道会话管理 v1.4.2 — 三栏布局：左导航 | 会话列表 | 消息详情。
- * v1.4.2: 修复 UI 破损（不存在的 --ui-fill-*/字号类全部替换为编译产物存在的类）+ 分类操作按钮常显。
+ * 渠道会话管理 v1.4.3 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * v1.4.3: 列表管理重构——会话人/群聊/分类重命名显示名（不删数据）、批量赋分类、移除批量删会话。
+ * v1.4.2: 修复 UI 破损（不存在的 --ui-fill 系与字号类全部替换为编译产物存在的类）+ 分类操作按钮常显。
  * v1.4.1: 语言切换（auto 跟随设备 + 手动中英）+ 自定义分类 CRUD + 收藏 + 导出 Markdown。
  * v1.4.0: 会话列表自动刷新（15s）+ 后端日志/并发反查加固 + 消息分页（开源发布版）。
  * v1.3: 点击会话行直接在插件内查看消息内容（user/assistant/tool 分角色渲染），
@@ -54,6 +55,11 @@ const MESSAGES = {
     'filter.category.name.placeholder': 'e.g. Work, Family…',
     'filter.category.assign': 'Category…',
     'filter.category.none': 'No category',
+    'filter.category.bulk': 'Assign category',
+    'filter.category.bulk.done': n => `Assigned to ${n} sessions`,
+    'filter.category.bulk.none': 'Create a category first',
+    'filter.category.select': 'Select',
+    'filter.category.selected': n => `${n} selected`,
     'filter.category.delete.title': 'Delete category?',
     'filter.category.delete.desc': name => `"${name}" will be removed. Sessions keep their data.`,
     'lang.auto': 'Auto',
@@ -117,6 +123,7 @@ const MESSAGES = {
     'untitled': '(untitled)',
     'action.open': 'Open session',
     'action.rename': 'Rename',
+    'action.rename.display': 'Rename display name',
     'action.pin': 'Pin',
     'action.unpin': 'Unpin',
     'action.archive': 'Archive',
@@ -124,6 +131,9 @@ const MESSAGES = {
     'action.delete': 'Delete session',
     'rename.title': 'Rename session',
     'rename.desc': 'The new title overrides the AI-generated one.',
+    'rename.object.title': 'Rename display name',
+    'rename.object.desc': 'Changes the name shown in this list only — original data is untouched.',
+    'rename.object.reset': 'Reset to default',
     'rename.cancel': 'Cancel',
     'rename.save': 'Save',
     'delete.title': 'Delete session?',
@@ -150,6 +160,11 @@ const MESSAGES = {
     'filter.category.name.placeholder': '如：工作、家人…',
     'filter.category.assign': '分类…',
     'filter.category.none': '无分类',
+    'filter.category.bulk': '批量分类',
+    'filter.category.bulk.done': n => `已分配给 ${n} 个会话`,
+    'filter.category.bulk.none': '请先创建分类',
+    'filter.category.select': '选择',
+    'filter.category.selected': n => `已选 ${n} 个`,
     'filter.category.delete.title': '删除分类？',
     'filter.category.delete.desc': name => `「${name}」将被删除，会话数据不受影响。`,
     'lang.auto': '自动',
@@ -213,6 +228,7 @@ const MESSAGES = {
     'untitled': '（无标题）',
     'action.open': '打开会话',
     'action.rename': '重命名',
+    'action.rename.display': '重命名显示名',
     'action.pin': '置顶',
     'action.unpin': '取消置顶',
     'action.archive': '归档',
@@ -220,6 +236,9 @@ const MESSAGES = {
     'action.delete': '删除会话',
     'rename.title': '重命名会话',
     'rename.desc': '新标题会覆盖 AI 自动生成的标题。',
+    'rename.object.title': '重命名显示名',
+    'rename.object.desc': '只改列表里的显示名，原始数据不变。',
+    'rename.object.reset': '恢复默认',
     'rename.cancel': '取消',
     'rename.save': '保存',
     'delete.title': '删除会话？',
@@ -340,9 +359,12 @@ function objectKey(s) {
   return `person:${s.user_id || 'u'}`
 }
 
-/** 会话对象显示名（通用化）：群聊=群名，私聊=用户名，话题=群名+话题，本地=本地会话 */
-function objectLabel(s, t) {
+/** 会话对象显示名（通用化）：群聊=群名，私聊=用户名，话题=群名+话题，本地=本地会话
+ *  用户自定义显示名覆盖（displayOverrides）优先。 */
+function objectLabel(s, t, overrides) {
   if (s.source === 'desktop' || s.source === 'cli' || s.source === 'tui') return t('local.label')
+  const key = objectKey(s)
+  if (overrides && overrides[key]) return overrides[key]
   const k = chatTypeKey(s)
   if (k === 'group') {
     if (s.display_name && !s.display_name.startsWith('oc_')) return s.display_name
@@ -358,7 +380,7 @@ function objectLabel(s, t) {
 
 // ---------------------------------------------------------------- 筛选选项构建
 
-function buildFilterOptions(all, t, favorites = []) {
+function buildFilterOptions(all, t, favorites = [], overrides = {}) {
   const platformMap = new Map()
   for (const s of all) {
     const k = s.source || 'unknown'
@@ -376,11 +398,11 @@ function buildFilterOptions(all, t, favorites = []) {
     const k = chatTypeKey(s)
     if (k === 'group' || k === 'topic') {
       const key = objectKey(s)
-      if (!groupMap.has(key)) groupMap.set(key, { key, label: objectLabel(s, t), count: 0 })
+      if (!groupMap.has(key)) groupMap.set(key, { key, label: objectLabel(s, t, overrides), count: 0 })
       groupMap.get(key).count += 1
     } else {
       const key = objectKey(s)
-      if (!personMap.has(key)) personMap.set(key, { key, label: objectLabel(s, t), count: 0 })
+      if (!personMap.has(key)) personMap.set(key, { key, label: objectLabel(s, t, overrides), count: 0 })
       personMap.get(key).count += 1
     }
   }
@@ -493,8 +515,8 @@ function MessageItem({ m, t }) {
 
 // ---------------------------------------------------------------- 会话行
 
-function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onToggleArchive, onDelete, onToggleCategory, onToggleFavorite, categories, sessionCats, favorites, t }) {
-  const person = showPerson ? objectLabel(s, t) : null
+function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onToggleArchive, onDelete, onToggleCategory, onToggleFavorite, categories, sessionCats, favorites, displayOverrides, selectMode, selected, onToggleSelect, t }) {
+  const person = showPerson ? objectLabel(s, t, displayOverrides) : null
   const typeLabel = chatTypeLabel(s, t)
   const preview = (s.preview || '').trim()
   const myCats = sessionCats[s.id] || []
@@ -502,8 +524,14 @@ function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onTo
   return jsxs('div', {
     className: 'group flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 transition-colors ' +
       (active ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-bg-tertiary)'),
-    onClick: () => onOpen(s),
+    onClick: () => selectMode ? onToggleSelect(s) : onOpen(s),
     children: [
+      selectMode ? jsx('button', {
+        className: 'shrink-0',
+        onClick: e => { e.stopPropagation(); onToggleSelect(s) },
+        children: jsx(Codicon, { name: selected ? 'check' : 'circle-outline',
+          className: selected ? 'text-(--ui-accent)' : 'text-(--ui-text-quaternary)' })
+      }) : null,
       jsx('div', { className: 'w-4 shrink-0 text-center', children: isFav
         ? jsx(Codicon, { name: 'star-full', className: 'text-(--ui-accent)' })
         : s.pinned
@@ -592,7 +620,7 @@ function FilterSection({ title, children, defaultOpen = true }) {
   ]})
 }
 
-function ObjectRow({ item, active, onClick, onDelete }) {
+function ObjectRow({ item, active, onClick, onRename, t }) {
   const initial = (item.label || '?').trim().charAt(0).toUpperCase()
   return jsxs('div', { className: 'group flex w-full items-center gap-1', children: [
     jsxs('button', {
@@ -609,11 +637,11 @@ function ObjectRow({ item, active, onClick, onDelete }) {
         jsx('span', { className: 'shrink-0 text-[11px] tabular-nums text-(--ui-text-quaternary)', children: item.count })
       ]
     }),
-    onDelete && jsx('button', {
-      className: 'shrink-0 rounded-md px-1 py-1 text-(--ui-text-quaternary) opacity-0 transition-opacity hover:bg-(--ui-bg-tertiary) hover:text-(--ui-red) group-hover:opacity-100',
-      onClick: e => { e.stopPropagation(); onDelete() },
-      title: '删除该对象全部会话',
-      children: jsx(Codicon, { name: 'trash' })
+    onRename && jsx('button', {
+      className: 'shrink-0 rounded-md px-1 py-1 text-(--ui-text-quaternary) hover:bg-(--ui-bg-tertiary) hover:text-(--ui-text-secondary)',
+      onClick: e => { e.stopPropagation(); onRename() },
+      title: t('action.rename.display'),
+      children: jsx(Codicon, { name: 'edit' })
     })
   ]})
 }
@@ -670,16 +698,16 @@ function ChannelSessionsPage() {
   const [selectedId, setSelectedId] = useState(null)
   const [renameTarget, setRenameTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [bulkDeleteTarget, setBulkDeleteTarget] = useState(null) // {key, label, count}
-  const bulkDeleteMut = useMutation({
-    mutationFn: key => apiRest('/delete-by-object', { method: 'POST', body: { object_key: key } }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEY })
-      setBulkDeleteTarget(null)
-      setFilters(prev => ({ ...prev, person: 'all' }))
-      host.notify({ kind: 'success', message: '已删除该对象全部会话' })
-    }
-  })
+  // 批量选择（批量赋分类用）
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectIds, setSelectIds] = useState([])
+  // 对象显示名覆盖：{objectKey: 自定义名}（只改列表显示，不动数据）
+  const [displayOverrides, setDisplayOverrides] = useState(() => apiStorage.get('displayOverrides', {}))
+  const saveDisplayOverrides = next => {
+    setDisplayOverrides(next)
+    apiStorage.set('displayOverrides', next)
+  }
+  const [renameObjectTarget, setRenameObjectTarget] = useState(null) // {key, label}
 
   // 自定义分类：categories=[{id,name}]，sessionCats={sessionId:[catId]}
   const [categories, setCategories] = useState(() => apiStorage.get(CATEGORIES_KEY, []))
@@ -740,7 +768,7 @@ function ChannelSessionsPage() {
   const data = sessionsQuery.data || { sessions: [], names: {} }
   const all = (data.sessions || []).filter(s => s.source && s.source !== 'cli' && s.source !== 'tui')
 
-  const options = useMemo(() => buildFilterOptions(all, t, favorites), [all, t, favorites])
+  const options = useMemo(() => buildFilterOptions(all, t, favorites, displayOverrides), [all, t, favorites, displayOverrides])
 
   // 失效筛选自动回退
   const validFilters = useMemo(() => {
@@ -883,6 +911,46 @@ function ChannelSessionsPage() {
     const nextCats = has ? cur.filter(x => x !== catId) : [...cur, catId]
     saveSessionCats({ ...sessionCats, [s.id]: nextCats })
   }
+  // 重命名对象显示名（只改列表显示，不动数据；空值=恢复默认）
+  const doRenameObject = name => {
+    if (!renameObjectTarget) return
+    const key = renameObjectTarget.key
+    const next = { ...displayOverrides }
+    if (name.trim()) next[key] = name.trim()
+    else delete next[key]
+    saveDisplayOverrides(next)
+    setRenameObjectTarget(null)
+  }
+  // 批量选择切换
+  const toggleSelectId = id => {
+    setSelectIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+  // 批量赋分类：选中的会话全部加上该分类（重复则跳过）
+  const bulkAssignCategory = catId => {
+    if (!selectIds.length) return
+    const next = { ...sessionCats }
+    for (const sid of selectIds) {
+      const cur = next[sid] || []
+      if (!cur.includes(catId)) next[sid] = [...cur, catId]
+    }
+    saveSessionCats(next)
+    host.notify({ kind: 'success', message: t('filter.category.bulk.done', selectIds.length) })
+    setSelectIds([])
+    setSelectMode(false)
+  }
+  // 批量移除分类
+  const bulkClearCategory = catId => {
+    if (!selectIds.length) return
+    const next = { ...sessionCats }
+    for (const sid of selectIds) {
+      const cur = next[sid] || []
+      next[sid] = cur.filter(x => x !== catId)
+    }
+    saveSessionCats(next)
+    host.notify({ kind: 'success', message: t('filter.category.bulk.done', selectIds.length) })
+    setSelectIds([])
+    setSelectMode(false)
+  }
   const openSession = s => {
     if (s.id) host.navigate(`/${encodeURIComponent(s.id)}`)
   }
@@ -938,13 +1006,13 @@ function ChannelSessionsPage() {
           ]})}),
           jsx(FilterSection, { title: t('filter.person'), children: jsxs('div', { className: 'space-y-0.5', children: [
             ...(options.persons.length ? [
-              ...options.persons.map(o => jsx(ObjectRow, { key: o.key, item: o, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }), onDelete: () => setBulkDeleteTarget({ key: o.key, label: o.label, count: o.count }) }))
+              ...options.persons.map(o => jsx(ObjectRow, { key: o.key, item: o, t, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }), onRename: () => setRenameObjectTarget({ key: o.key, label: o.label }) }))
             ] : []),
             ...(options.groups.length ? [
               jsx('div', { key: 'group-sep', className: 'px-1 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.groups') }),
-              ...options.groups.map(o => jsx(ObjectRow, { key: o.key, item: o, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }), onDelete: () => setBulkDeleteTarget({ key: o.key, label: o.label, count: o.count }) }))
+              ...options.groups.map(o => jsx(ObjectRow, { key: o.key, item: o, t, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }), onRename: () => setRenameObjectTarget({ key: o.key, label: o.label }) }))
             ] : []),
-            options.localCount ? jsx(ObjectRow, { item: { key: 'local', label: t('filter.local'), count: options.localCount }, active: validFilters.person === 'local', onClick: () => saveFilters({ person: validFilters.person === 'local' ? 'all' : 'local' }) }) : null
+            options.localCount ? jsx(ObjectRow, { item: { key: 'local', label: t('filter.local'), count: options.localCount }, t, active: validFilters.person === 'local', onClick: () => saveFilters({ person: validFilters.person === 'local' ? 'all' : 'local' }) }) : null
           ]})}),
           jsx(FilterSection, { title: t('filter.status'), children: jsx('div', { className: 'flex flex-wrap gap-1 px-1', children: options.statuses.map(st => jsx(FilterChip, {
             key: st.key, active: validFilters.status === st.key, label: st.label, count: st.count,
@@ -1007,7 +1075,13 @@ function ChannelSessionsPage() {
           jsx('span', { children: '·' }),
           jsx('span', { children: `${filtered.length}` }),
           validFilters.query.trim() ? jsx('span', { className: 'truncate', children: t('filter.searching', validFilters.query.trim()) }) : null,
-          activeCount > 0 ? jsx(Button, { size: 'sm', variant: 'ghost', className: 'ml-auto', onClick: clearAll, children: t('filter.clear') }) : null
+          jsx(Button, {
+            size: 'sm', variant: selectMode ? 'secondary' : 'ghost', className: 'ml-auto',
+            onClick: () => { setSelectMode(!selectMode); setSelectIds([]) },
+            title: t('filter.category.bulk'),
+            children: jsxs('span', { className: 'flex items-center gap-1', children: [jsx(Codicon, { name: 'checklist' }), t('filter.category.select')] })
+          }),
+          activeCount > 0 ? jsx(Button, { size: 'sm', variant: 'ghost', onClick: clearAll, children: t('filter.clear') }) : null
         ]}),
         jsx(ScrollArea, { className: 'flex-1', children:
           sessionsQuery.isLoading
@@ -1018,13 +1092,27 @@ function ChannelSessionsPage() {
                 ? jsx(EmptyState, { title: t('list.empty'), description: t('list.empty.desc') })
                 : jsx('div', { className: 'px-2 py-2', children: filtered.map(s => jsx(SessionRow, {
                     key: s.id, s, active: selected && selected.id === s.id, showPerson, t,
-                    categories, sessionCats, favorites,
+                    categories, sessionCats, favorites, displayOverrides,
+                    selectMode, selected: selectIds.includes(s.id), onToggleSelect: toggleSelectId,
                     onOpen: toggleSelect, onRename: setRenameTarget,
                     onTogglePin: doTogglePin, onToggleArchive: doToggleArchive,
                     onToggleCategory: toggleSessionCategory, onToggleFavorite: toggleFavorite,
                     onDelete: setDeleteTarget
                   })) })
-        })
+        }),
+        // 批量操作条（选择模式时显示）
+        selectMode ? jsx('div', { className: 'flex items-center gap-2 border-t border-(--ui-stroke-secondary) px-3 py-2', children: [
+          jsx('span', { className: 'shrink-0 text-xs text-(--ui-text-secondary)', children: t('filter.category.selected', selectIds.length) }),
+          categories.length
+            ? jsx(DropdownMenu, { children: [
+                jsx(DropdownMenuTrigger, { asChild: true, children: jsx(Button, { size: 'sm', variant: 'secondary', disabled: !selectIds.length, children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: 'tag-add' }), t('filter.category.bulk')] }) })}),
+                jsx(DropdownMenuContent, { align: 'start', children: categories.map(cat => jsx(DropdownMenuItem, {
+                  key: cat.id, onSelect: () => bulkAssignCategory(cat.id),
+                  children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'tag' }), jsx('span', { className: 'truncate', children: cat.name })] })
+                })) })
+              ]})
+            : jsx('span', { className: 'text-xs text-(--ui-text-quaternary)', children: t('filter.category.bulk.none') })
+        ]}) : null
       ]}),
       // 右栏：消息详情
       jsxs('div', { className: 'flex min-w-0 flex-1 flex-col', children: [
@@ -1043,7 +1131,7 @@ function ChannelSessionsPage() {
                     selected.pinned ? jsx(Codicon, { name: 'pinned', className: 'shrink-0 text-(--ui-accent)' }) : null
                   ]}),
                   jsxs('div', { className: 'mt-0.5 flex items-center gap-1.5 text-xs text-(--ui-text-tertiary)', children: [
-                    jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: objectLabel(selected, t) }),
+                    jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: objectLabel(selected, t, displayOverrides) }),
                     jsx('span', { children: '·' }),
                     jsx('span', { children: platformLabel(selected.source) }),
                     jsx('span', { children: '·' }),
@@ -1134,15 +1222,15 @@ function ChannelSessionsPage() {
       description: deleteTarget ? t('delete.desc', sessionDisplayTitle(deleteTarget, t)) : '',
       confirmLabel: t('delete.confirm'), destructive: true, dismissOnConfirm: true
     }),
-    jsx(ConfirmDialog, {
-      open: !!bulkDeleteTarget, onClose: () => setBulkDeleteTarget(null),
-      onConfirm: () => bulkDeleteMut.mutateAsync(bulkDeleteTarget.key),
-      title: '删除该对象全部会话？',
-      description: bulkDeleteTarget
-        ? `将永久删除「${bulkDeleteTarget.label}」的全部 ${bulkDeleteTarget.count} 个会话，不可恢复。确定继续？`
-        : '',
-      confirmLabel: `删除 ${bulkDeleteTarget ? bulkDeleteTarget.count : ''} 个会话`,
-      destructive: true, dismissOnConfirm: true
+    jsx(CategoryDialog, {
+      key: renameObjectTarget ? renameObjectTarget.key : 'none',
+      open: !!renameObjectTarget,
+      title: t('rename.object.title'),
+      initialValue: renameObjectTarget ? (displayOverrides[renameObjectTarget.key] || renameObjectTarget.label) : '',
+      placeholder: t('rename.object.desc'),
+      onClose: () => setRenameObjectTarget(null),
+      onConfirm: doRenameObject,
+      t
     })
   ]})
 }
