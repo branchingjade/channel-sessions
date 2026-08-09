@@ -1,5 +1,6 @@
 /**
- * 渠道会话管理 v1.5.0 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * 渠道会话管理 v1.5.1 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * v1.5.1: 修复渲染崩溃（useLangT 不再依赖 SDK useI18n，改 navigator.language 设备检测）。
  * v1.5.0: 全文搜索（消息内容级命中）+ 右键菜单 + 批量置顶/归档 + 排序切换。
  * v1.4.3: 列表管理重构——会话人/群聊/分类重命名显示名（不删数据）、批量赋分类、移除批量删会话。
  * v1.4.2: 修复 UI 破损（不存在的 --ui-fill 系与字号类全部替换为编译产物存在的类）+ 分类操作按钮常显。
@@ -16,7 +17,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
   DropdownMenuTrigger, EmptyState, ErrorState, GlyphSpinner, Input,
   PALETTE_AREA, ROUTES_AREA, ScrollArea, SearchField, SegmentedControl,
-  SIDEBAR_NAV_AREA, useI18n, useMutation, useQuery, useQueryClient, host
+  SIDEBAR_NAV_AREA, useMutation, useQuery, useQueryClient, host
 } from '@hermes/plugin-sdk'
 import { useEffect, useMemo, useState } from 'react'
 import { Fragment, jsx, jsxs } from 'react/jsx-runtime'
@@ -279,18 +280,24 @@ const MESSAGES = {
   }
 }
 
-// 语言状态 hook：auto=跟随 app locale；zh/en=手动强制（持久化）
+// 语言状态 hook：auto=跟随设备语言；zh/en=手动强制（持久化）
+// 用 navigator.language 检测（不依赖 SDK useI18n——v1.5.0 曾因真实环境
+// useI18n 返回形状与 mock 不一致导致 "t is not a function" 崩溃）
+function detectLocale() {
+  try {
+    const lang = (navigator.language || navigator.languages?.[0] || '').toLowerCase()
+    if (lang.startsWith('zh')) return 'zh'
+    return 'en'
+  } catch (e) { return 'en' }
+}
 function useLangT() {
-  const { locale } = useI18n()
   const [lang, setLangState] = useState(() => apiStorage.get(LANG_STORAGE_KEY, 'auto'))
-  const resolved = lang === 'auto'
-    ? (locale === 'zh' || locale === 'zh-hant' ? 'zh' : 'en')
-    : lang
-  const t = useMemo(() => (key, ...args) => {
+  const resolved = lang === 'auto' ? detectLocale() : lang
+  const t = (key, ...args) => {
     const bundle = MESSAGES[resolved] || MESSAGES.en
     const v = bundle[key]
     return typeof v === 'function' ? v(...args) : (v ?? key)
-  }, [resolved])
+  }
   const setLang = l => {
     setLangState(l)
     apiStorage.set(LANG_STORAGE_KEY, l)

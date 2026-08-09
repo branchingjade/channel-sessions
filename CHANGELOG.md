@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-08-09
+
+### Fixed (render crash — critical)
+- **Page failed to render with `t is not a function`** on first mount in the real desktop app (v1.5.0 regression). `useLangT` depended on the SDK's `useI18n()` hook whose live shim shape differs between the dev bundle and the packaged app — under the packaged runtime it did not yield a callable `t`, so every `t(...)` in the page threw during render.
+- Fix: `useLangT` no longer imports/uses `useI18n`. Locale detection now uses `navigator.language` (with `zh*` → Chinese mapping and a safe fallback to `en`); `t` is a plain closure over `MESSAGES[resolved]` instead of a `useMemo`-wrapped factory. Removed the now-unused `useI18n` SDK import.
+- Verified: syntax (node --check), selfcheck 21 items (118 i18n keys), component simulation (mock hooks execute `ChannelSessionsPage` without throwing), pytest 28, class audit 0 missing.
+
+[1.5.1]: https://github.com/branchingjade/channel-sessions/releases/tag/v1.5.1
+
 ## [1.5.0] - 2026-08-09
 
 ### Added (feature pass — full-line functional upgrades)
