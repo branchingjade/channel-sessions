@@ -376,3 +376,53 @@ def _mutate(profile: str, op: str, session_id: str, **kwargs) -> Dict[str, Any]:
         db.close()
     logger.info("会话操作成功 op=%s session=%s", op, session_id)
     return {"ok": True, "session_id": session_id, "op": op}
+
+
+# ---------------------------------------------------------------- 按对象批量删除
+
+def _object_key(s: Dict[str, Any]) -> str:
+    """与前端 objectKey() 对齐的会话对象键（local / group: / topic: / person:）。"""
+    source = s.get("source") or ""
+    if source in ("desktop", "cli", "tui"):
+        return "local"
+    chat_type = s.get("chat_type") or ""
+    chat_id = str(s.get("chat_id") or "")
+    user_id = str(s.get("user_id") or "")
+    thread_id = str(s.get("thread_id") or "")
+    if source == "feishu":
+        return f"group:{chat_id or 'g'}" if chat_type == "group" else f"person:{user_id or 'u'}"
+    if chat_type in ("group", "chat"):
+        return f"group:{chat_id or 'g'}"
+    if chat_type in ("topic", "thread"):
+        return f"topic:{chat_id or 'g'}:{thread_id or 't'}"
+    return f"person:{user_id or 'u'}"
+
+
+def delete_by_object(object_key: str) -> Dict[str, Any]:
+    """按对象键删除该对象（人/群/话题/本地）的全部会话。"""
+    if not object_key or not object_key.strip():
+        raise ValueError("object_key 不能为空")
+    deleted: List[Dict[str, Any]] = []
+    failed: List[Dict[str, Any]] = []
+    for profile_name, db_path in _profile_dbs():
+        rows = _rows_for_db(db_path, limit=100000)
+        for s in rows:
+            if _object_key(s) != object_key:
+                continue
+            sid = str(s.get("id") or "")
+            if not sid:
+                continue
+            try:
+                _mutate(profile_name, "delete", sid)
+                deleted.append({"session_id": sid, "title": (s.get("title") or "")[:40]})
+            except Exception as exc:
+                failed.append({"session_id": sid, "error": str(exc)})
+    logger.info("按对象删除完成 object_key=%s deleted=%d failed=%d", object_key, len(deleted), len(failed))
+    return {
+        "ok": True,
+        "object_key": object_key,
+        "deleted_count": len(deleted),
+        "failed_count": len(failed),
+        "deleted": deleted[:50],
+        "failed": failed[:20],
+    }

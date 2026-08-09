@@ -4,6 +4,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-08-09
+
+### Fixed (critical UI regression)
+- **Plugin rendered broken**: several Tailwind classes used by the plugin do not exist in Hermes' compiled CSS (Hermes builds CSS from its own source only; plugin files are outside the build graph). Missing classes made message bubbles/avatars/hover backgrounds transparent (`--ui-fill-tertiary`/`--ui-fill-secondary` don't exist — the app uses `--ui-bg-*`), broke text sizes (`text-[10.5px]`/`[12.5px]`/`[13px]`), the session-list width (`w-[380px]`), badge truncation (`max-w-24`), and the sidebar header height (`min-h-[30px]`).
+- All 93 plugin classes now verified to exist in the compiled CSS via `tests/audit_classes.py` (Tailwind-escaped exact match against the dist asset).
+- Category row actions (rename/delete) are now always visible instead of hover-only (`opacity-0 group-hover:opacity-100`) — users couldn't discover them, and could mistake the session "delete" menu for category deletion.
+
+### Changed
+- Backend: `GET /export` added in 1.4.1 (this patch round-trips it into the repo with tests).
+
+[1.4.2]: https://github.com/branchingjade/channel-sessions/releases/tag/v1.4.2
+
 ## [1.4.1] - 2026-08-08
 
 ### Added

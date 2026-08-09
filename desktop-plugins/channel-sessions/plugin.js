@@ -1,5 +1,6 @@
 /**
- * 渠道会话管理 v1.4.1 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * 渠道会话管理 v1.4.2 — 三栏布局：左导航 | 会话列表 | 消息详情。
+ * v1.4.2: 修复 UI 破损（不存在的 --ui-fill-*/字号类全部替换为编译产物存在的类）+ 分类操作按钮常显。
  * v1.4.1: 语言切换（auto 跟随设备 + 手动中英）+ 自定义分类 CRUD + 收藏 + 导出 Markdown。
  * v1.4.0: 会话列表自动刷新（15s）+ 后端日志/并发反查加固 + 消息分页（开源发布版）。
  * v1.3: 点击会话行直接在插件内查看消息内容（user/assistant/tool 分角色渲染），
@@ -448,7 +449,7 @@ function MessageItem({ m, t }) {
 
   if (isTool) {
     // 工具调用：默认折叠为一行，点击展开完整内容
-    return jsxs('div', { className: 'flex gap-2 rounded-md bg-(--ui-fill-tertiary)/50 px-2.5 py-1.5 text-xs text-(--ui-text-quaternary)', children: [
+    return jsxs('div', { className: 'flex gap-2 rounded-md bg-(--ui-bg-tertiary)/40 px-2.5 py-1.5 text-xs text-(--ui-text-quaternary)', children: [
       jsx(Codicon, { name: 'tools', className: 'mt-0.5 shrink-0' }),
       jsxs('div', { className: 'min-w-0 flex-1', children: [
         jsxs('div', { className: 'flex items-center gap-2', children: [
@@ -470,18 +471,18 @@ function MessageItem({ m, t }) {
     jsxs('div', { className: 'flex flex-col items-center gap-1 pt-0.5', children: [
       jsx('span', {
         className: 'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[10px] font-semibold ' +
-          (isUser ? 'bg-(--ui-accent) text-white' : 'bg-(--ui-fill-tertiary) text-(--ui-text-secondary)'),
+          (isUser ? 'bg-(--ui-accent) text-white' : 'bg-(--ui-bg-tertiary) text-(--ui-text-secondary)'),
         children: isUser ? t('msg.user') : t('msg.ai')
       }),
       jsx('span', { className: 'text-[9px] text-(--ui-text-quaternary)', children: fmtClock(m.timestamp) })
     ]}),
     jsxs('div', { className: 'min-w-0 flex-1 space-y-1', children: [
       jsx('div', {
-        className: 'rounded-lg bg-(--ui-fill-tertiary)/60 px-3 py-2 text-[12.5px] leading-relaxed break-words whitespace-pre-wrap',
+        className: 'rounded-lg bg-(--ui-bg-tertiary)/40 px-3 py-2 text-xs leading-relaxed break-words whitespace-pre-wrap',
         children: body || (isUser ? t('msg.empty.user') : t('msg.empty.assistant'))
       }),
       isLong ? jsx('button', {
-        className: 'text-[10.5px] text-(--ui-accent) hover:underline',
+        className: 'text-[11px] text-(--ui-accent) hover:underline',
         onClick: () => setExpanded(!expanded),
         children: expanded ? t('msg.collapse') : t('msg.expand', content.length)
       }) : null,
@@ -500,7 +501,7 @@ function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onTo
   const isFav = favorites.includes(s.id)
   return jsxs('div', {
     className: 'group flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 transition-colors ' +
-      (active ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-fill-secondary)'),
+      (active ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-bg-tertiary)'),
     onClick: () => onOpen(s),
     children: [
       jsx('div', { className: 'w-4 shrink-0 text-center', children: isFav
@@ -510,11 +511,11 @@ function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onTo
           : s.archived ? jsx(Codicon, { name: 'archive', className: 'text-(--ui-text-quaternary)' }) : null }),
       jsxs('div', { className: 'min-w-0 flex-1', children: [
         jsxs('div', { className: 'flex min-w-0 items-center gap-2', children: [
-          jsx('span', { className: 'truncate text-[13px] font-medium', children: sessionDisplayTitle(s, t) }),
+          jsx('span', { className: 'truncate text-sm font-medium', children: sessionDisplayTitle(s, t) }),
           typeLabel !== '—' ? jsx(Badge, { variant: 'outline', className: 'shrink-0 text-[10px]', children: typeLabel }) : null,
           ...myCats.map(cid => {
             const cat = categories.find(c => c.id === cid)
-            return cat ? jsx(Badge, { key: cid, className: 'shrink-0 max-w-24 truncate text-[10px]', children: cat.name }) : null
+            return cat ? jsx(Badge, { key: cid, className: 'shrink-0 max-w-60 truncate text-[10px]', children: cat.name }) : null
           }),
           s.profile !== 'default' ? jsx(Badge, { className: 'shrink-0 text-[10px]', children: s.profile }) : null
         ]}),
@@ -542,7 +543,7 @@ function SessionRow({ s, active, showPerson, onOpen, onRename, onTogglePin, onTo
               jsx(DropdownMenuItem, { onSelect: () => onRename(s), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'edit' }), t('action.rename')] })}),
               categories.length ? jsxs(Fragment, { children: [
                 jsx(DropdownMenuSeparator, {}),
-                jsx('div', { className: 'px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.category.assign') }),
+                jsx('div', { className: 'px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.category.assign') }),
                 ...categories.map(cat => jsx(DropdownMenuItem, {
                   key: cat.id, onSelect: () => onToggleCategory(s, cat.id),
                   children: jsxs('span', { className: 'flex items-center gap-2', children: [
@@ -580,33 +581,41 @@ function FilterSection({ title, children, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen)
   return jsxs('div', { className: 'space-y-1', children: [
     jsx('button', {
-      className: 'flex w-full items-center gap-1 rounded px-1 pb-0.5 pt-1 text-left hover:bg-(--ui-fill-secondary)',
+      className: 'flex w-full items-center gap-1 rounded px-1 pb-0.5 pt-1 text-left hover:bg-(--ui-bg-tertiary)',
       onClick: () => setOpen(!open),
       children: [
         jsx(Codicon, { name: open ? 'chevron-down' : 'chevron-right', className: 'shrink-0 text-[11px] text-(--ui-text-quaternary)' }),
-        jsx('span', { className: 'text-[10.5px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: title })
+        jsx('span', { className: 'text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: title })
       ]
     }),
     open ? jsx('div', { className: 'pt-0.5', children }) : null
   ]})
 }
 
-function ObjectRow({ item, active, onClick }) {
+function ObjectRow({ item, active, onClick, onDelete }) {
   const initial = (item.label || '?').trim().charAt(0).toUpperCase()
-  return jsxs('button', {
-    className: 'flex w-full items-center gap-2 rounded-md px-2 py-1 text-left transition-colors ' +
-      (active ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-fill-secondary)'),
-    onClick,
-    title: `${item.label}（${item.count}）`,
-    children: [
-      jsx('span', {
-        className: 'flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-(--ui-fill-tertiary) text-[11px] font-semibold text-(--ui-text-secondary)',
-        children: initial
-      }),
-      jsx('span', { className: 'min-w-0 flex-1 truncate text-left text-[12.5px]', children: item.label }),
-      jsx('span', { className: 'shrink-0 text-[11px] tabular-nums text-(--ui-text-quaternary)', children: item.count })
-    ]
-  })
+  return jsxs('div', { className: 'group flex w-full items-center gap-1', children: [
+    jsxs('button', {
+      className: 'flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left transition-colors ' +
+        (active ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-bg-tertiary)'),
+      onClick,
+      title: `${item.label}（${item.count}）`,
+      children: [
+        jsx('span', {
+          className: 'flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-(--ui-bg-tertiary) text-[11px] font-semibold text-(--ui-text-secondary)',
+          children: initial
+        }),
+        jsx('span', { className: 'min-w-0 flex-1 truncate text-left text-xs', children: item.label }),
+        jsx('span', { className: 'shrink-0 text-[11px] tabular-nums text-(--ui-text-quaternary)', children: item.count })
+      ]
+    }),
+    onDelete && jsx('button', {
+      className: 'shrink-0 rounded-md px-1 py-1 text-(--ui-text-quaternary) opacity-0 transition-opacity hover:bg-(--ui-bg-tertiary) hover:text-(--ui-red) group-hover:opacity-100',
+      onClick: e => { e.stopPropagation(); onDelete() },
+      title: '删除该对象全部会话',
+      children: jsx(Codicon, { name: 'trash' })
+    })
+  ]})
 }
 
 // ---------------------------------------------------------------- 重命名对话框
@@ -661,6 +670,16 @@ function ChannelSessionsPage() {
   const [selectedId, setSelectedId] = useState(null)
   const [renameTarget, setRenameTarget] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [bulkDeleteTarget, setBulkDeleteTarget] = useState(null) // {key, label, count}
+  const bulkDeleteMut = useMutation({
+    mutationFn: key => apiRest('/delete-by-object', { method: 'POST', body: { object_key: key } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+      setBulkDeleteTarget(null)
+      setFilters(prev => ({ ...prev, person: 'all' }))
+      host.notify({ kind: 'success', message: '已删除该对象全部会话' })
+    }
+  })
 
   // 自定义分类：categories=[{id,name}]，sessionCats={sessionId:[catId]}
   const [categories, setCategories] = useState(() => apiStorage.get(CATEGORIES_KEY, []))
@@ -885,7 +904,7 @@ function ChannelSessionsPage() {
         archivedCount > 0 ? jsx(Badge, { variant: 'outline', className: 'text-[10px]', children: `${t('filter.archived')} ${archivedCount}` }) : null
       ]}),
       jsxs('div', { className: 'flex items-center gap-2', children: [
-        jsx('span', { className: 'text-[10.5px] font-medium uppercase tracking-wide text-(--ui-text-quaternary)', children: t('lang.label') }),
+        jsx('span', { className: 'text-[11px] font-medium uppercase tracking-wide text-(--ui-text-quaternary)', children: t('lang.label') }),
         jsx(SegmentedControl, {
           value: lang, onChange: setLang,
           options: [
@@ -909,7 +928,7 @@ function ChannelSessionsPage() {
           value: validFilters.query, onChange: q => saveFilters({ query: q }),
           placeholder: t('search.placeholder'), containerClassName: 'w-full'
         })}),
-        jsx(ScrollArea, { className: 'flex-1 px-2 pb-3', children: jsxs('div', { className: 'space-y-3.5', children: [
+        jsx(ScrollArea, { className: 'flex-1 px-2 pb-3', children: jsxs('div', { className: 'space-y-3', children: [
           jsx(FilterSection, { title: t('filter.platform'), children: jsx('div', { className: 'flex flex-wrap gap-1 px-1', children: [
             jsx(FilterChip, { active: validFilters.platform === 'all', label: t('filter.all'), onClick: () => saveFilters({ platform: 'all' }) }),
             ...options.platforms.map(p => jsx(FilterChip, {
@@ -919,11 +938,11 @@ function ChannelSessionsPage() {
           ]})}),
           jsx(FilterSection, { title: t('filter.person'), children: jsxs('div', { className: 'space-y-0.5', children: [
             ...(options.persons.length ? [
-              ...options.persons.map(o => jsx(ObjectRow, { key: o.key, item: o, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }) }))
+              ...options.persons.map(o => jsx(ObjectRow, { key: o.key, item: o, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }), onDelete: () => setBulkDeleteTarget({ key: o.key, label: o.label, count: o.count }) }))
             ] : []),
             ...(options.groups.length ? [
-              jsx('div', { key: 'group-sep', className: 'px-1 pb-0.5 pt-1.5 text-[10.5px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.groups') }),
-              ...options.groups.map(o => jsx(ObjectRow, { key: o.key, item: o, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }) }))
+              jsx('div', { key: 'group-sep', className: 'px-1 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.groups') }),
+              ...options.groups.map(o => jsx(ObjectRow, { key: o.key, item: o, active: validFilters.person === o.key, onClick: () => saveFilters({ person: validFilters.person === o.key ? 'all' : o.key }), onDelete: () => setBulkDeleteTarget({ key: o.key, label: o.label, count: o.count }) }))
             ] : []),
             options.localCount ? jsx(ObjectRow, { item: { key: 'local', label: t('filter.local'), count: options.localCount }, active: validFilters.person === 'local', onClick: () => saveFilters({ person: validFilters.person === 'local' ? 'all' : 'local' }) }) : null
           ]})}),
@@ -943,18 +962,18 @@ function ChannelSessionsPage() {
                     return jsx('div', {
                       key: cat.id,
                       className: 'group flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors ' +
-                        (validFilters.category === cat.id ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-fill-secondary)'),
+                        (validFilters.category === cat.id ? 'bg-(--ui-control-active-background)' : 'hover:bg-(--ui-bg-tertiary)'),
                       children: [
                         jsx('button', {
                           className: 'flex min-w-0 flex-1 items-center gap-2 py-0.5 text-left',
                           onClick: () => saveFilters({ category: validFilters.category === cat.id ? 'all' : cat.id }),
                           children: [
                             jsx(Codicon, { name: 'tag', className: 'shrink-0 text-[12px] text-(--ui-text-tertiary)' }),
-                            jsx('span', { className: 'min-w-0 flex-1 truncate text-[12.5px]', children: cat.name }),
+                            jsx('span', { className: 'min-w-0 flex-1 truncate text-xs', children: cat.name }),
                             jsx('span', { className: 'shrink-0 text-[11px] tabular-nums text-(--ui-text-quaternary)', children: count })
                           ]
                         }),
-                        jsx('div', { className: 'flex shrink-0 items-center opacity-0 group-hover:opacity-100', children: [
+                        jsx('div', { className: 'flex shrink-0 items-center', children: [
                           jsx('button', {
                             className: 'rounded p-0.5 text-(--ui-text-quaternary) hover:text-(--ui-text-secondary)',
                             title: t('filter.category.rename'),
@@ -974,7 +993,7 @@ function ChannelSessionsPage() {
                 ]
               : jsx('div', { className: 'px-1 py-1 text-xs text-(--ui-text-quaternary)', children: t('filter.category.empty') }),
             jsx('button', {
-              className: 'flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-(--ui-accent) hover:bg-(--ui-fill-secondary)',
+              className: 'flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-(--ui-accent) hover:bg-(--ui-bg-tertiary)',
               onClick: () => setCatDialog({ mode: 'new' }),
               children: [jsx(Codicon, { name: 'add', className: 'text-[12px]' }), t('filter.category.new')]
             })
@@ -982,8 +1001,8 @@ function ChannelSessionsPage() {
         ]})})
       ]}),
       // 中栏：会话列表
-      jsxs('div', { className: 'flex w-[380px] shrink-0 flex-col border-r border-(--ui-stroke-secondary)', children: [
-        jsxs('div', { className: 'flex min-h-[30px] items-center gap-2 border-b border-(--ui-stroke-secondary) px-3 py-1.5 text-xs text-(--ui-text-tertiary)', children: [
+      jsxs('div', { className: 'flex w-80 shrink-0 flex-col border-r border-(--ui-stroke-secondary)', children: [
+        jsxs('div', { className: 'flex min-h-7 items-center gap-2 border-b border-(--ui-stroke-secondary) px-3 py-1.5 text-xs text-(--ui-text-tertiary)', children: [
           jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: activeCount ? activeParts.join(' · ') : t('list.all') }),
           jsx('span', { children: '·' }),
           jsx('span', { children: `${filtered.length}` }),
@@ -1016,10 +1035,10 @@ function ChannelSessionsPage() {
                   children: jsx(Codicon, { name: 'arrow-left' }) }),
                 jsx('div', { className: 'min-w-0 flex-1', children: [
                   jsxs('div', { className: 'flex items-center gap-2', children: [
-                    jsx('span', { className: 'truncate text-[13px] font-semibold', children: sessionDisplayTitle(selected, t) }),
+                    jsx('span', { className: 'truncate text-sm font-semibold', children: sessionDisplayTitle(selected, t) }),
                     ...(sessionCats[selected.id] || []).map(cid => {
                       const cat = categories.find(c => c.id === cid)
-                      return cat ? jsx(Badge, { key: cid, className: 'shrink-0 max-w-24 truncate text-[10px]', children: cat.name }) : null
+                      return cat ? jsx(Badge, { key: cid, className: 'shrink-0 max-w-60 truncate text-[10px]', children: cat.name }) : null
                     }),
                     selected.pinned ? jsx(Codicon, { name: 'pinned', className: 'shrink-0 text-(--ui-accent)' }) : null
                   ]}),
@@ -1041,7 +1060,7 @@ function ChannelSessionsPage() {
                     jsx(DropdownMenuItem, { onSelect: () => setRenameTarget(selected), children: jsxs('span', { className: 'flex items-center gap-2', children: [jsx(Codicon, { name: 'edit' }), t('action.rename')] })}),
                     categories.length ? jsxs(Fragment, { children: [
                       jsx(DropdownMenuSeparator, {}),
-                      jsx('div', { className: 'px-2 py-1 text-[10.5px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.category.assign') }),
+                      jsx('div', { className: 'px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-(--ui-text-quaternary)', children: t('filter.category.assign') }),
                       ...categories.map(cat => jsx(DropdownMenuItem, {
                         key: cat.id, onSelect: () => toggleSessionCategory(selected, cat.id),
                         children: jsxs('span', { className: 'flex items-center gap-2', children: [
@@ -1114,6 +1133,16 @@ function ChannelSessionsPage() {
       title: t('delete.title'),
       description: deleteTarget ? t('delete.desc', sessionDisplayTitle(deleteTarget, t)) : '',
       confirmLabel: t('delete.confirm'), destructive: true, dismissOnConfirm: true
+    }),
+    jsx(ConfirmDialog, {
+      open: !!bulkDeleteTarget, onClose: () => setBulkDeleteTarget(null),
+      onConfirm: () => bulkDeleteMut.mutateAsync(bulkDeleteTarget.key),
+      title: '删除该对象全部会话？',
+      description: bulkDeleteTarget
+        ? `将永久删除「${bulkDeleteTarget.label}」的全部 ${bulkDeleteTarget.count} 个会话，不可恢复。确定继续？`
+        : '',
+      confirmLabel: `删除 ${bulkDeleteTarget ? bulkDeleteTarget.count : ''} 个会话`,
+      destructive: true, dismissOnConfirm: true
     })
   ]})
 }

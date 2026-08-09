@@ -38,7 +38,13 @@ _ADDED = str(_DASHBOARD_DIR) not in sys.path
 if _ADDED:
     sys.path.insert(0, str(_DASHBOARD_DIR))
 try:
-    from channel_sessions.service import list_sessions, get_messages as service_get_messages, _mutate, export_markdown
+    from channel_sessions.service import (
+        list_sessions,
+        get_messages as service_get_messages,
+        _mutate,
+        export_markdown,
+        delete_by_object,
+    )
 finally:
     if _ADDED:
         sys.path.remove(str(_DASHBOARD_DIR))
@@ -119,6 +125,21 @@ def pin_session(body: SessionMutation) -> dict[str, Any]:
 def delete_session(body: SessionMutation) -> dict[str, Any]:
     try:
         return _mutate(body.profile, "delete", body.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+class ObjectDelete(BaseModel):
+    object_key: str
+
+
+@router.post("/delete-by-object")
+def delete_by_object_route(body: ObjectDelete) -> dict[str, Any]:
+    """按对象键删除该对象（人/群/话题/本地）的全部会话。"""
+    try:
+        return delete_by_object(body.object_key)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # pragma: no cover
