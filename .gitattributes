@@ -1,0 +1,6 @@
+# Normalize line endings: repo stores LF, working tree follows platform
+* text=auto
+*.js text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.md text eol=lf
